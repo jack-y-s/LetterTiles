@@ -117,13 +117,18 @@ const dictionarySet = new Set(dictionary);
 
 const app = express();
 const server = http.createServer(app);
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://lettertiles.onrender.com"
+];
+
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173"
+    origin: allowedOrigins
   }
 });
 
-app.use(cors({ origin: "http://localhost:5173" }));
+app.use(cors({ origin: allowedOrigins }));
 
 const endSession = (lobby: Lobby) => {
   lobby.state.status = "ended";
