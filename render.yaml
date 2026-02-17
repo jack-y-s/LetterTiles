@@ -1,0 +1,24 @@
+# Render Blueprint for Letter Tiles
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: letter-tiles-backend
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+    rootDir: backend
+    autoDeploy: true
+
+  - type: web
+    name: letter-tiles-frontend
+    env: static
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    rootDir: frontend
+    autoDeploy: true
