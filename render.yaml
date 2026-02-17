@@ -6,8 +6,8 @@ services:
     name: letter-tiles-backend
     env: node
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm run start
+    buildCommand: cd backend && npm install && npm run build
+    startCommand: cd backend && npm run start
     envVars:
       - key: NODE_ENV
         value: production
