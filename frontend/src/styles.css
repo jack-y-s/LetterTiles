@@ -1,3 +1,47 @@
+/* Toggle switch for ready/not ready */
+.ready-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.ready-toggle input[type="checkbox"] {
+  display: none;
+}
+.ready-slider {
+  width: 36px;
+  height: 20px;
+  background: #e0e0e0;
+  border-radius: 12px;
+  position: relative;
+  transition: background 0.2s;
+}
+.ready-toggle input[type="checkbox"]:checked + .ready-slider {
+  background: #06d6a0;
+}
+.ready-slider::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.ready-toggle input[type="checkbox"]:checked + .ready-slider::before {
+  transform: translateX(16px);
+}
+.ready-label {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #1f1c1a;
+}
 :root {
   color-scheme: light;
   font-family: "Trebuchet MS", "Segoe Print", sans-serif;
@@ -78,19 +122,49 @@ html,
 
 .brand-tiles {
   display: grid;
-  gap: 0px;
+  gap: 0.5px;
+  justify-items: start;
+  align-items: center;
+  min-width: 180px;
+  max-width: 100vw;
+  margin-bottom: 2px;
 }
 
 .brand-tiles-row {
   display: flex;
-  gap: 0px;
+  gap: 0.5px;
+  flex-wrap: nowrap;
 }
 
 .brand-tile {
-  font-weight: 700;
-  font-size: 14px;
+  font-family: 'Fira Mono', 'Consolas', 'Menlo', 'monospace';
+  font-weight: 900;
+  font-size: 16px;
   color: #ff4d6d;
   text-transform: uppercase;
+  padding: 0 1px;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  display: inline-block;
+  min-width: 20px;
+  text-align: center;
+  margin: 0 0.5px;
+}
+
+@media (max-width: 600px) {
+  .brand-tiles {
+    min-width: 120px;
+    max-width: 90vw;
+    gap: 0.25px;
+  }
+  .brand-tiles-row {
+    gap: 0.25px;
+  }
+  .brand-tile {
+    font-size: 12px;
+    min-width: 14px;
+    padding: 0 0.5px;
+  }
 }
 
 .brand {
@@ -253,13 +327,28 @@ html,
   border: 2px solid #d7bfa2;
   font-weight: 700;
   font-size: var(--tile-font);
-  box-shadow: inset 0 0 0 2px #f8e4c4;
+  box-shadow: none;
   cursor: pointer;
 }
 
 .letter-tile.selected {
-  outline: 3px solid #3b5b3c;
-  transform: translateY(-2px);
+  outline: none;
+  animation: keypress-down-up 0.18s cubic-bezier(0.4,0,0.2,1);
+}
+
+@keyframes keypress-down-up {
+  0% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(4px);
+  }
+  60% {
+    transform: translateY(-2px);
+  }
+  100% {
+    transform: translateY(0);
+  }
 }
 
 .letter-tile:disabled {
@@ -385,7 +474,7 @@ html,
 
 .panel-box {
   background: #ffffff;
-  border-radius: 16px;
+  /* outline removed, animation retained if present */
   padding: var(--card-pad);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
   display: grid;
@@ -994,7 +1083,7 @@ ul {
 
 .word-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
   align-items: start;
   overflow: hidden;
@@ -1163,7 +1252,19 @@ ul {
   }
 
   .toast-lane {
-    display: none;
+    display: flex !important;
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90vw;
+    max-width: 400px;
+    z-index: 1000;
+    pointer-events: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
   }
 
   .letter-tile {
@@ -1172,9 +1273,12 @@ ul {
     font-size: 28px;
   }
 
-  .word-grid {
-    grid-template-columns: repeat(3, minmax(120px, 1fr));
-    gap: 12px;
+  /* mobile only: 3 columns for <=600px */
+  @media (max-width: 600px) {
+    .word-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
   }
 
   .recent-words,
@@ -1194,7 +1298,6 @@ ul {
     max-height: 80px;
     height: 80px;
   }
-}
 
 @media (max-width: 600px) {
   .page {
@@ -1208,8 +1311,11 @@ ul {
     font-size: 22px;
   }
 
-  .word-grid {
-    grid-template-columns: repeat(2, minmax(110px, 1fr));
+  /* mobile only: 2 columns for <=400px */
+  @media (max-width: 400px) {
+    .word-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
 
   .word-tile {

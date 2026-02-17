@@ -77,6 +77,17 @@ const App = () => {
   const lastSuccessRef = useRef<{ word: string; at: number } | null>(null);
   const [recentValidWords, setRecentValidWords] = useState<string[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // Auto-scroll chat only when a new message is added
+  const chatMessagesEndRef = useRef<HTMLDivElement | null>(null);
+  const prevChatLengthRef = useRef<number>(0);
+  useEffect(() => {
+    if (chatMessages.length > prevChatLengthRef.current) {
+      if (chatMessagesEndRef.current) {
+        chatMessagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+    prevChatLengthRef.current = chatMessages.length;
+  }, [chatMessages]);
   const [chatInput, setChatInput] = useState("");
   const [lobbyCountdown, setLobbyCountdown] = useState<number | null>(null);
   const [displayOrder, setDisplayOrder] = useState<number[]>([]);
@@ -400,6 +411,7 @@ const App = () => {
       }
       return [...current, index];
     });
+    setTypedWord((prev) => (prev + (game.letters[index] ?? "")).toUpperCase());
   };
 
   const handleSubmitWord = () => {
@@ -672,18 +684,19 @@ const App = () => {
                         {player.name.slice(0, 1).toUpperCase()}
                       </span>
                       <span>{player.name}</span>
-                      <span className={`lobby-ready ${player.ready ? "is-ready" : "is-not-ready"}`}>
-                        {player.ready ? "Ready" : "Not ready"}
+                      <span style={{ display: "flex", alignItems: "center", marginLeft: "auto", gap: 8 }}>
+                        {player.id === me?.id && joined && game.status === "lobby" && (
+                          <label className="ready-toggle" style={{ marginRight: 0 }}>
+                            <input
+                              type="checkbox"
+                              checked={!!player.ready}
+                              onChange={handleToggleReady}
+                            />
+                            <span className="ready-slider" />
+                          </label>
+                        )}
+                        <span className={`lobby-ready ${player.ready ? "is-ready" : "is-not-ready"}`}>{player.ready ? "Ready" : "Not ready"}</span>
                       </span>
-                      {player.id === me?.id && joined && game.status === "lobby" && (
-                        <button
-                          type="button"
-                          className={`lobby-ready-toggle ${player.ready ? "is-not-ready" : "is-ready"}`}
-                          onClick={handleToggleReady}
-                        >
-                          {player.ready ? "Not ready" : "Ready"}
-                        </button>
-                      )}
                     </li>
                   ))}
                 </ul>
@@ -706,24 +719,27 @@ const App = () => {
               </div>
               {showChatPanel && (
                 <>
-                  <div className="chat-messages">
+                  <div className="chat-messages" style={{ overflowY: "auto", maxHeight: 200 }}>
                     {chatMessages.length === 0 ? (
                       <p className="muted">No messages yet</p>
                     ) : (
-                      chatMessages.map((msg) => (
-                        <div key={msg.id} className="chat-message">
-                          <span
-                            className="chat-avatar"
-                            style={{ background: msg.playerColor }}
-                          >
-                            {msg.playerName.slice(0, 1).toUpperCase()}
-                          </span>
-                          <div className="chat-content">
-                            <span className="chat-name">{msg.playerName}</span>
-                            <span className="chat-text">{msg.message}</span>
+                      <>
+                        {chatMessages.map((msg) => (
+                          <div key={msg.id} className="chat-message">
+                            <span
+                              className="chat-avatar"
+                              style={{ background: msg.playerColor }}
+                            >
+                              {msg.playerName.slice(0, 1).toUpperCase()}
+                            </span>
+                            <div className="chat-content">
+                              <span className="chat-name">{msg.playerName}</span>
+                              <span className="chat-text">{msg.message}</span>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        ))}
+                        <div ref={chatMessagesEndRef} />
+                      </>
                     )}
                   </div>
                   <div className="chat-input-row">
