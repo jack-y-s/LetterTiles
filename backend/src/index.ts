@@ -62,7 +62,7 @@ type Lobby = {
   sessionWords: string[];
   revealedByPlayer: Map<string, Set<number>>;
   wordIndex: Map<string, number>;
-  submittedWords: Set<string>;
+  submittedWords: Map<string, Set<string>>; // playerId -> Set of words
   hiddenBonusAwarded: Set<string>;
   sessionEndAt: number | null;
   resetTimer: NodeJS.Timeout | null;
@@ -157,7 +157,7 @@ const endSession = (lobby: Lobby) => {
     lobby.sessionWords = [];
     lobby.revealedByPlayer = new Map();
     lobby.wordIndex = new Map();
-    lobby.submittedWords = new Set();
+    lobby.submittedWords = new Map();
     lobby.hiddenBonusAwarded = new Set();
     lobby.sessionEndAt = null;
     lobby.state.timeLeft = SESSION_SECONDS;
@@ -255,7 +255,7 @@ const createLobby = () => {
     sessionWords: [],
     revealedByPlayer: new Map(),
     wordIndex: new Map(),
-    submittedWords: new Set(),
+    submittedWords: new Map(),
     hiddenBonusAwarded: new Set(),
     sessionEndAt: null,
     resetTimer: null,
@@ -447,7 +447,7 @@ const buildSession = (lobby: Lobby) => {
   lobby.sessionWords = words;
   lobby.revealedByPlayer = new Map();
   lobby.wordIndex = new Map(lobby.sessionWords.map((word, index) => [word, index]));
-  lobby.submittedWords = new Set();
+  lobby.submittedWords = new Map();
   lobby.hiddenBonusAwarded = new Set();
 };
 
@@ -776,8 +776,11 @@ io.on("connection", (socket) => {
       reject("Word uses unavailable letters.");
       return;
     }
-    if (lobby.submittedWords.has(normalized)) {
-      reject("Word already submitted.");
+
+    // Check if this player already submitted this word
+    const playerWords = lobby.submittedWords.get(player.id) ?? new Set<string>();
+    if (playerWords.has(normalized)) {
+      reject("You already submitted this word.");
       return;
     }
 
@@ -791,7 +794,8 @@ io.on("connection", (socket) => {
       revealedForPlayer.add(index);
       lobby.revealedByPlayer.set(socket.id, revealedForPlayer);
     }
-    lobby.submittedWords.add(normalized);
+    playerWords.add(normalized);
+    lobby.submittedWords.set(player.id, playerWords);
     const length = normalized.length;
     const basePoints = length * POINTS_PER_LETTER;
     const lengthBonus = getLengthBonus(length);

@@ -15,6 +15,7 @@
   box-sizing: border-box;
 }
 
+
 body {
   margin: 0;
   height: 100%;
@@ -36,6 +37,21 @@ html,
   gap: var(--section-gap);
   align-items: start;
   overflow: hidden;
+}
+
+@media (max-width: 600px) {
+  body, html, #root {
+    height: auto;
+    min-height: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .page {
+    height: auto;
+    min-height: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
 }
 
 .topbar {
