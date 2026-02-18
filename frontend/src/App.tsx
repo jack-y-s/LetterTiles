@@ -36,7 +36,7 @@ type GameState = {
 type Toast = {
   id: number;
   text: string;
-  tone: "success" | "error";
+  tone: "success" | "error" | "minus" | "plus";
 };
 
 type ChatMessage = {
@@ -52,7 +52,7 @@ type ChatMessage = {
 type JoinMode = "random" | "create" | "joinById";
 
 
-const socketUrl = "https://lettertiles-backend.onrender.com";
+const socketUrl = "http://localhost:3001";
 
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
@@ -61,6 +61,9 @@ const formatTime = (seconds: number) => {
 };
 
 const App = () => {
+    // Floating points badge state
+    const [pointsBadge, setPointsBadge] = useState<{ value: number, key: number } | null>(null);
+    const pointsBadgeTimeout = useRef<number | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [accountName, setAccountName] = useState("");
   const [accountNameInput, setAccountNameInput] = useState("");
@@ -74,6 +77,7 @@ const App = () => {
   const rankTimerRef = useRef<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(1);
+  const lastToastAtRef = useRef<number>(0);
   const lastSuccessRef = useRef<{ word: string; at: number } | null>(null);
   const [recentValidWords, setRecentValidWords] = useState<string[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -90,6 +94,9 @@ const App = () => {
   }, [chatMessages]);
   const [chatInput, setChatInput] = useState("");
   const [lobbyCountdown, setLobbyCountdown] = useState<number | null>(null);
+  // For enhanced countdown animation: remember starting value and pulse per tick
+  const startLobbyCountdownRef = useRef<number | null>(null);
+  const [tickPulse, setTickPulse] = useState(false);
   const [displayOrder, setDisplayOrder] = useState<number[]>([]);
   const [shufflePulse, setShufflePulse] = useState(false);
   const shuffleTimerRef = useRef<number | null>(null);
@@ -101,6 +108,7 @@ const App = () => {
   const [showHintPanel, setShowHintPanel] = useState(true);
   const [showHiddenPanel, setShowHiddenPanel] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [confettiEnabled, setConfettiEnabled] = useState(false);
   const lastLettersKeyRef = useRef("");
   const [joinMode, setJoinMode] = useState<JoinMode>("random");
   const [lobbyIdInput, setLobbyIdInput] = useState("");
@@ -114,6 +122,54 @@ const App = () => {
     cards: [],
     winner: null
   });
+  // Cache for last non-empty cards
+  const lastNonEmptyCardsRef = useRef<WordCard[]>([]);
+
+  // Determine which cards to display in the UI.
+  // Do NOT show hidden words during lobby countdown (status === 'lobby'),
+  // even if the backend has prepared `game.cards` early. Only display
+  // when the round is active or ended. After the round ends, fall back
+  // to cached cards so words persist during the reset delay.
+  const displayCards = ((game.status === "active" || game.status === "ended") && game.cards.length > 0)
+    ? game.cards
+    : (game.status === "ended" && lastNonEmptyCardsRef.current.length > 0)
+      ? lastNonEmptyCardsRef.current
+      : [];
+
+  // Store the initial sorted order of cards at round start
+  const initialCardOrderRef = useRef<number[] | null>(null);
+  useEffect(() => {
+    // Prefer backend-provided sessionWords (prepared during countdown) to
+    // compute the initial fixed order. If sessionWords are not available,
+    // fall back to the actual displayCards.
+    if (initialCardOrderRef.current === null) {
+      const sessionWords: string[] | undefined = (game as any).sessionWords;
+      if (sessionWords && sessionWords.length > 0) {
+        const entries = sessionWords.map((w, idx) => ({ card: { id: idx, length: w.length, word: w.toUpperCase() } as WordCard, idx }));
+        const sorted = entries.sort((a, b) => {
+          if (b.card.length !== a.card.length) return b.card.length - a.card.length;
+          const aWord = (a.card.word || "").toLowerCase();
+          const bWord = (b.card.word || "").toLowerCase();
+          return aWord.localeCompare(bWord);
+        });
+        initialCardOrderRef.current = sorted.map(x => x.idx);
+      } else if (displayCards.length > 0) {
+        const entries = displayCards.map((card, idx) => ({ card: { ...card, word: card.word ?? "" }, idx }));
+        const sorted = entries.sort((a, b) => {
+          if (b.card.length !== a.card.length) return b.card.length - a.card.length;
+          const aWord = (a.card.word || "").toLowerCase();
+          const bWord = (b.card.word || "").toLowerCase();
+          return aWord.localeCompare(bWord);
+        });
+        initialCardOrderRef.current = sorted.map(x => x.idx);
+      }
+    }
+    // Reset the initial order only when sessionWords and cards are cleared (lobby reset)
+    const sessionWords: string[] | undefined = (game as any).sessionWords;
+    if (game.status === "lobby" && (!sessionWords || sessionWords.length === 0) && displayCards.length === 0) {
+      initialCardOrderRef.current = null;
+    }
+  }, [game, displayCards]);
 
   const sortedPlayers = useMemo(
     () => [...game.players].sort((a, b) => b.score - a.score),
@@ -130,13 +186,44 @@ const App = () => {
     return sortedPlayers[0].score === sortedPlayers[1].score;
   }, [game.status, sortedPlayers]);
 
-  const pushToast = (text: string, tone: "success" | "error") => {
+  const pushToast = (text: string, tone: Toast["tone"]) => {
+    const now = Date.now();
+    // Throttle frequent toasts to avoid flooding, but allow points to always show
+    if (tone !== "plus" && tone !== "minus") {
+      if (now - (lastToastAtRef.current || 0) < 180) return;
+      lastToastAtRef.current = now;
+    }
     const id = toastIdRef.current++;
     setToasts((current) => [{ id, text, tone }, ...current]);
     window.setTimeout(() => {
       setToasts((current) => current.filter((toast) => toast.id !== id));
-    }, 5000);
+    }, 1000);
   };
+
+  // Helpers must be defined at component scope
+  const pushMinus = (amount: number) => {
+    pushToast(`-${amount}`, "minus");
+  };
+  const pushPlus = (amount: number) => {
+    pushToast(`+${amount}`, "plus");
+  };
+
+  // Enable confetti briefly when a winner overlay appears (but avoid on mobile)
+  useEffect(() => {
+    let t: number | undefined;
+    if (game.status === "ended" && game.winner && showWinnerOverlay && !isMobile) {
+      // lazy-load confetti CSS once
+      if (!(window as any).__confetti_css_loaded) {
+        import("./confetti.css");
+        (window as any).__confetti_css_loaded = true;
+      }
+      setConfettiEnabled(true);
+      t = window.setTimeout(() => setConfettiEnabled(false), 3600);
+    }
+    return () => {
+      if (t) window.clearTimeout(t);
+    };
+  }, [game.status, game.winner, showWinnerOverlay, isMobile]);
 
 
   const pushSuccess = (word: string) => {
@@ -159,6 +246,10 @@ const App = () => {
 
     socketInstance.on("state", (state: GameState) => {
       setGame(state);
+      // Cache the last non-empty cards (for active/ended)
+      if ((state.status === "active" || state.status === "ended") && state.cards && state.cards.length > 0) {
+        lastNonEmptyCardsRef.current = state.cards;
+      }
       if (state.status === "lobby") {
         const isPlayer = state.players.some((player) => player.id === socketInstance.id);
         if (!isPlayer) {
@@ -173,11 +264,10 @@ const App = () => {
 
     socketInstance.on("submissionError", (message: string) => {
       setError(message);
-      pushToast(message, "error");
-    });
+    })
 
     socketInstance.on("submissionAccepted", ({ word }: { word: string }) => {
-      pushSuccess(word);
+      // handled in submitWord callback
     });
 
     socketInstance.on("chatMessage", (message: ChatMessage) => {
@@ -190,6 +280,11 @@ const App = () => {
 
     socketInstance.on("lobbyCountdown", (seconds: number | null) => {
       setLobbyCountdown(seconds);
+    });
+
+    // keep start value in sync when countdown begins
+    socketInstance.on("lobbyCountdown", (seconds: number | null) => {
+      // no-op here, handled in effect below
     });
 
     socketInstance.on("resetCountdown", (seconds: number | null) => {
@@ -235,6 +330,24 @@ const App = () => {
       mediaQuery.removeEventListener("change", handleChange);
     };
   }, []);
+
+  // Track start-of-countdown and trigger a tick pulse animation on each second change
+  useEffect(() => {
+    if (lobbyCountdown === null) {
+      startLobbyCountdownRef.current = null;
+      return;
+    }
+    if (startLobbyCountdownRef.current === null) {
+      startLobbyCountdownRef.current = lobbyCountdown;
+    }
+    // pulse animation on tick
+    setTickPulse(true);
+    const t = window.setTimeout(() => setTickPulse(false), 350);
+
+    return () => {
+      window.clearTimeout(t);
+    };
+  }, [lobbyCountdown]);
 
   useEffect(() => {
     const nextKey = game.letters.join("");
@@ -319,21 +432,33 @@ const App = () => {
   const letterOrder = displayOrder.length === game.letters.length
     ? displayOrder
     : game.letters.map((_, index) => index);
+
+  // Do not render the six main letters during lobby/countdown. However,
+  // allow preparation (displayOrder, clearing selections) to happen when
+  // `game.letters` is provided by the server during countdown so the
+  // board appears instantly when the round becomes active.
+  const displayLetters = ((game.status === "active" || game.status === "ended") && game.letters.length > 0)
+    ? game.letters
+    : [];
+ 
+
   const wordData = useMemo(() => {
-    if (game.cards.length === 0) {
+    if (displayCards.length === 0 || !initialCardOrderRef.current) {
       return { columns: [] as WordCard[][], pinnedSixId: null as number | null };
     }
-    const sorted = [...game.cards].sort((a, b) => b.length - a.length);
-    const sixCard = sorted.find((card) => card.length === 6) ?? null;
-    const withoutSix = sixCard ? sorted.filter((card) => card.id !== sixCard.id) : sorted;
-    const ordered = sixCard ? [sixCard, ...withoutSix] : withoutSix;
-    const trimmed = ordered.slice(0, 30);
+    // Use the fixed initial order
+    const ordered = initialCardOrderRef.current.map(idx => displayCards[idx]);
+    // Always pin the first 6-letter card (if any) at the front
+    const sixCard = ordered.find((card) => card.length === 6) ?? null;
+    const withoutSix = sixCard ? ordered.filter((card) => card.id !== sixCard.id) : ordered;
+    const finalOrder = sixCard ? [sixCard, ...withoutSix] : withoutSix;
+    const trimmed = finalOrder.slice(0, 30);
     const columns: WordCard[][] = [];
     for (let index = 0; index < trimmed.length; index += 6) {
       columns.push(trimmed.slice(index, index + 6));
     }
     return { columns, pinnedSixId: sixCard?.id ?? null };
-  }, [game.cards]);
+  }, [displayCards, initialCardOrderRef.current]);
 
   const handleCreateAccount = (event: React.FormEvent) => {
     event.preventDefault();
@@ -421,9 +546,20 @@ const App = () => {
     socket.emit(
       "submitWord",
       { word: displayWord },
-      (response?: { ok: boolean; word?: string }) => {
+      (response?: { ok: boolean; word?: string; points?: number; error?: string }) => {
+        // Show result toast (valid/invalid)
         if (response?.ok && response.word) {
           pushSuccess(response.word);
+        } else if (response?.error) {
+          pushToast(response.error, "error");
+        }
+        // Show points toast (plus/minus) side by side
+        if (typeof response?.points === "number" && response.points !== 0) {
+          if (response.points > 0) {
+            pushPlus(response.points);
+          } else {
+            pushMinus(Math.abs(response.points));
+          }
         }
       }
     );
@@ -504,6 +640,11 @@ const App = () => {
       if (event.code !== "Space") {
         return;
       }
+      // Only shuffle if not typing in an input or textarea
+      const active = document.activeElement;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+        return;
+      }
       event.preventDefault();
       handleShuffleLetters();
     };
@@ -521,8 +662,30 @@ const App = () => {
     };
   }, []);
 
+  // Clean up points badge timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (pointsBadgeTimeout.current) {
+        window.clearTimeout(pointsBadgeTimeout.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="page">
+      {/* Toast notifications under Time Left */}
+      <div className="toast-center-row">
+        <div className="toast-lane toast-result">
+          {toasts.filter(t => t.tone === "success" || t.tone === "error").map((toast) => (
+            <div key={toast.id} className={`toast toast-${toast.tone}`}>{toast.text}</div>
+          ))}
+        </div>
+        <div className="toast-lane toast-points">
+          {toasts.filter(t => t.tone === "plus" || t.tone === "minus").map((toast) => (
+            <div key={toast.id} className={`toast toast-${toast.tone}`}>{toast.text}</div>
+          ))}
+        </div>
+      </div>
       <header className="topbar">
         <div className="brand">
           <div className="brand-row">
@@ -550,21 +713,36 @@ const App = () => {
         </div>
 
         <div className="timer-block">
-          <span className="timer-label">Time Left:</span>
+          <span className="timer-label">Time Left</span>
           <span className="timer-value">{formatTime(game.timeLeft)}</span>
           {game.status === "lobby" && lobbyCountdown !== null && (
             <div className="lobby-countdown" aria-live="polite">
-              {lobbyCountdown === 0 ? (
-                <div className="star-burst" aria-label="Starting">
-                  <span className="star star-1" />
-                  <span className="star star-2" />
-                  <span className="star star-3" />
+              <div className="countdown-ring" role="img" aria-label={`Starting in ${lobbyCountdown}`}>
+                  <svg viewBox="0 0 44 44" width="44" height="44" aria-hidden="true">
+                    <circle className="ring-bg" cx="22" cy="22" r="18" fill="none" strokeWidth="4" />
+                    <circle
+                      className="ring-fg"
+                      cx="22"
+                      cy="22"
+                      r="18"
+                      fill="none"
+                      strokeWidth="4"
+                      style={{
+                        strokeDasharray: 2 * Math.PI * 18,
+                          strokeDashoffset: (() => {
+                            const start = startLobbyCountdownRef.current ?? lobbyCountdown;
+                            const frac = start > 0 ? Math.max(0, Math.min(1, lobbyCountdown / start)) : 0;
+                            const circ = 2 * Math.PI * 18;
+                            // Use a negative offset so the stroke "empties" in the
+                            // opposite direction (anticlockwise) starting from the top.
+                            return String(-circ * (1 - frac));
+                          })(),
+                        transition: "stroke-dashoffset 0.28s linear"
+                      }}
+                    />
+                  </svg>
+                  <span className={`countdown-number ${tickPulse ? "tick" : ""}`}>{lobbyCountdown}</span>
                 </div>
-              ) : (
-                <div className="countdown-badge">
-                  <span className="countdown-number">{lobbyCountdown}</span>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -574,7 +752,9 @@ const App = () => {
         <div className="side-panels side-left">
           {!hasAccount ? (
             <form className="card" onSubmit={handleCreateAccount}>
-              <h2 className="section-title">Choose Display Name</h2>
+              <div className="leaderboard-header">
+                <span>Choose Display Name</span>
+              </div>
               <p className="muted">Pick a display name for this session.</p>
               <input
                 value={accountNameInput}
@@ -661,8 +841,8 @@ const App = () => {
           )}
 
           <div className="card panel-box">
-            <div className="panel-header">
-              <h2 className="section-title">Players in Lobby</h2>
+            <div className="leaderboard-header">
+              <span>Players in Lobby</span>
               {isMobile && (
                 <button
                   type="button"
@@ -675,7 +855,7 @@ const App = () => {
             </div>
             {showPlayersPanel && (
               game.players.length === 0 ? (
-                <p className="muted">No players yet</p>
+                <p className="muted">No players yet.</p>
               ) : (
                 <ul className="lobby-list">
                   {game.players.map((player) => (
@@ -721,7 +901,7 @@ const App = () => {
                 <>
                   <div className="chat-messages" style={{ overflowY: "auto", maxHeight: 200 }}>
                     {chatMessages.length === 0 ? (
-                      <p className="muted">No messages yet</p>
+                      <p className="muted">No messages yet.</p>
                     ) : (
                       <>
                         {chatMessages.map((msg) => (
@@ -767,28 +947,26 @@ const App = () => {
 
         <div className="center-stack">
           <section className="letter-center">
-            <div className="toast-lane toast-left">
-              {toasts
-                .filter((toast) => toast.tone === "error")
-                .map((toast) => (
-                  <div key={toast.id} className="toast toast-error">
-                    {toast.text}
-                  </div>
-                ))}
-            </div>
+            {/* Toasts moved to .page, nothing here */}
             <div className="letter-center-content">
-              {game.letters.length === 0 ? (
-                <p className="muted">Waiting for letters...</p>
+                          {/* Floating points badge animation */}
+                          {pointsBadge && (
+                            <div key={pointsBadge.key} className={`points-badge ${pointsBadge.value > 0 ? "plus" : "minus"}`}>
+                              {pointsBadge.value > 0 ? "+" : "-"}{Math.abs(pointsBadge.value)}
+                            </div>
+                          )}
+              {displayLetters.length === 0 ? (
+                <p className="muted">Waiting for round to start...</p>
               ) : (
                 <div className={`letter-row${shufflePulse ? " shuffle-pulse" : ""}`}>
                   {letterOrder.map((letterIndex) => (
                     <button
-                      key={`${game.letters[letterIndex]}-${letterIndex}`}
+                      key={`${displayLetters[letterIndex]}-${letterIndex}`}
                       className={`letter-tile ${selectedIndices.includes(letterIndex) ? "selected" : ""}`}
                       onClick={() => handleLetterClick(letterIndex)}
                       disabled={!joined || game.status !== "active"}
                     >
-                      {game.letters[letterIndex]}
+                      {displayLetters[letterIndex]}
                     </button>
                   ))}
                 </div>
@@ -824,9 +1002,9 @@ const App = () => {
             </div>
           </section>
           <section className="word-bank">
-            <div className="word-bank-header">
+            <div className="leaderboard-header">
               <div className="word-bank-title">
-                <h2 className="section-title">Hidden Words</h2>
+                <span>Hidden Words</span>
                 <span className="word-bank-revealed">
                   ({game.cards.filter((card) => card.revealed).length} revealed)
                 </span>
@@ -905,9 +1083,9 @@ const App = () => {
             </ul>
           </div>
 
-          <div className="recent-words">
-            <div className="panel-header">
-              <div className="recent-words-label">Recent Valid Words</div>
+          <div className="leaderboard recent-words">
+            <div className="leaderboard-header">
+              <span>Recent Valid Words</span>
               {isMobile && (
                 <button
                   type="button"
@@ -919,22 +1097,22 @@ const App = () => {
               )}
             </div>
             {showRecentPanel && (
-              <div className={`recent-words-list${recentValidWords.length > 4 ? " two-columns" : ""}`}>
-                {recentValidWords.length > 0 ? (
-                  recentValidWords.map((word, index) => (
+              recentValidWords.length > 0 ? (
+                <div className={`recent-words-list${recentValidWords.length > 4 ? " two-columns" : ""}${recentValidWords.length > 4 ? " scrollable" : ""}`}>
+                  {recentValidWords.map((word, index) => (
                     <div key={index} className="recent-word-item">
                       {word}
                     </div>
-                  ))
-                ) : (
-                  <div className="recent-words-empty">-</div>
-                )}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No words yet.</p>
+              )
             )}
           </div>
           <div className="hint-box">
-            <div className="panel-header">
-              <div className="recent-words-label">Hint</div>
+            <div className="leaderboard-header">
+              <span>Hint</span>
               {isMobile && (
                 <button
                   type="button"
@@ -948,13 +1126,27 @@ const App = () => {
             {showHintPanel && (
               <div className="score-hint muted">
                 <ul>
-                  <li><span className="score-hint-label">Base:</span> 100 points per letter.</li>
-                  <li><span className="score-hint-label">Length Bonus:</span> +50 (4), +100 (5), +200 (6).</li>
-                  <li><span className="score-hint-label">Hidden Word Bonus:</span> +150 (3), +300 (4), +750 (5), +1600 (6).</li>
-                  <li><span className="score-hint-label">Streaks Bonus:</span> +10% / +20% / +35% / +50% (2/3/4/5+ in a row).</li>
-                  <li><span className="score-hint-label">Invalid Word:</span> -50 points and reset streak.</li>
-                  <li><span className="score-hint-label">All Hidden:</span> +3000 for revealing all hidden words.</li>
-                  <li><span className="score-hint-label">Word Lengths:</span> Only 3 to 6 letters are possible.</li>
+                  <li className="hint-item">
+                    <span><strong className="score-hint-label">All Hidden Found:</strong> +3000 points for revealing all hidden words.</span>
+                  </li>
+                  <li className="hint-item">
+                    <span><strong className="score-hint-label">Base:</strong> 100 points per letter.</span>
+                  </li>
+                  <li className="hint-item">
+                    <span><strong className="score-hint-label">Hidden Word Bonus:</strong> +150 (3), +300 (4), +750 (5), +1600 (6).</span>
+                  </li>
+                  <li className="hint-item">
+                    <span><strong className="score-hint-label">Invalid Word:</strong> -50 points and reset streak.</span>
+                  </li>
+                  <li className="hint-item">
+                    <span><strong className="score-hint-label">Length Bonus:</strong> +50 (4), +100 (5), +200 (6).</span>
+                  </li>
+                  <li className="hint-item">
+                    <span><strong className="score-hint-label">Streaks Bonus:</strong> +10% / +20% / +35% / +50% (2/3/4/5+ in a row).</span>
+                  </li>
+                  <li className="hint-item">
+                    <span><strong className="score-hint-label">Word Lengths:</strong> Only 3 to 6 letter words are possible.</span>
+                  </li>
                 </ul>
               </div>
             )}
@@ -963,12 +1155,14 @@ const App = () => {
       </section>
 
       {game.status === "ended" && game.winner && showWinnerOverlay && (
-        <div className="winner-overlay">
-          <div className="confetti" aria-hidden="true">
-            {Array.from({ length: 12 }).map((_, index) => (
-              <span key={`confetti-${index}`} className="confetti-piece" />
-            ))}
-          </div>
+        <div className={`winner-overlay ${confettiEnabled ? 'confetti-enabled' : ''}`}>
+          {confettiEnabled && (
+            <div className="confetti" aria-hidden="true">
+              {Array.from({ length: 12 }).map((_, index) => (
+                <span key={`confetti-${index}`} className="confetti-piece" />
+              ))}
+            </div>
+          )}
           <div className="winner-card">
             {isDraw ? (
               <div className="winner-avatars">
@@ -987,11 +1181,42 @@ const App = () => {
                 {game.winner.name.slice(0, 1).toUpperCase()}
               </span>
             )}
-            <h2>{isDraw ? "Draw, good try!" : `${game.winner.name} wins`}</h2>
+            <h2>{isDraw ? "Draw, good try!" : `${game.winner.name} wins!`}</h2>
             {!isDraw && (
               <p className="winner-message">Congratulations! Great round.</p>
             )}
             <p className="muted">Score: {game.winner.score}</p>
+            {/* Final top-3 ranking with medals */}
+            {sortedPlayers && sortedPlayers.length > 0 && (
+              <div style={{ marginTop: 12, textAlign: "left", width: "100%" }}>
+                <h3 style={{ margin: "6px 0" }}>Final Ranking</h3>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
+                  {sortedPlayers.slice(0, 3).map((p, idx) => (
+                    <li key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 20 }}>{["🥇", "🥈", "🥉"][idx]}</span>
+                        <span style={{ fontWeight: 700 }}>{p.name}</span>
+                      </span>
+                      <span style={{ fontWeight: 700 }}>{p.score}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {/* Show player's top submitted words (received in per-client state as playerTopWords) */}
+            {me && (game as any).playerTopWords && (game as any).playerTopWords.length > 0 && (
+              <div style={{ marginTop: 12, textAlign: "left", width: "100%" }}>
+                <h3 style={{ margin: "6px 0" }}>Your Top Words</h3>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
+                  {(game as any).playerTopWords.map((entry: any, idx: number) => (
+                    <li key={idx} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                      <span style={{ fontWeight: 700 }}>{entry.word}</span>
+                      <span style={{ color: "#1f6b2c", fontWeight: 700 }}>+{entry.points}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {resetCountdown !== null && (
               <p className="reset-message">Resetting in {resetCountdown} seconds</p>
             )}

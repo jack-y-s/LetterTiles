@@ -84,7 +84,7 @@ type SubmitAck = {
 
 const MIN_PLAYERS_TO_START = 2;
 const MAX_PLAYERS = 7;
-const LOBBY_COUNTDOWN_SECONDS = 10;
+const LOBBY_COUNTDOWN_SECONDS = 5;
 const SESSION_SECONDS = 120;
 const LETTER_COUNT = 6;
 const MIN_WORD_LENGTH = 3;
@@ -463,7 +463,10 @@ const resetScores = (lobby: Lobby) => {
 
 const startSession = (lobby: Lobby) => {
   stopLobbyCountdown(lobby);
-  buildSession(lobby);
+  // If a session was pre-built during the countdown, reuse it.
+  if (!lobby.sessionWords || lobby.sessionWords.length === 0) {
+    buildSession(lobby);
+  }
   resetScores(lobby);
   lobby.state.status = "active";
   lobby.state.lastAction = "New round started";
@@ -523,6 +526,11 @@ const scheduleLobbyCountdown = (lobby: Lobby) => {
   if (lobby.lobbyCountdownInterval) {
     clearInterval(lobby.lobbyCountdownInterval);
   }
+  // Prepare session words early so letters and hidden words can be
+  // displayed during the countdown. Only build once per countdown period.
+  if (!lobby.sessionWords || lobby.sessionWords.length === 0) {
+    buildSession(lobby);
+  }
   lobby.lobbyCountdownEndAt = Date.now() + LOBBY_COUNTDOWN_SECONDS * 1000;
   lobby.lobbyCountdownLastValue = null;
   emitLobbyCountdown(lobby, LOBBY_COUNTDOWN_SECONDS);
@@ -574,7 +582,20 @@ const broadcastState = (lobby: Lobby) => {
   lobby.state.players = lobby.state.players;
   lobby.state.players.forEach((player) => {
     const cards = buildCardsForPlayer(lobby, player.id);
-    io.to(player.id).emit("state", { ...lobby.state, cards });
+    // Compute top 5 submitted words for this player (by points)
+    const submitted = lobby.submittedWords.get(player.id) ?? new Set<string>();
+    const topWords = Array.from(submitted).map((w) => {
+      const normalized = w.toLowerCase();
+      const length = normalized.length;
+      const basePoints = length * POINTS_PER_LETTER;
+      const lengthBonus = getLengthBonus(length);
+      const index = lobby.wordIndex.get(normalized);
+      const hiddenBonus = index !== undefined ? getHiddenBonus(length) : 0;
+      const points = basePoints + lengthBonus + hiddenBonus;
+      return { word: normalized.toUpperCase(), points };
+    }).sort((a, b) => b.points - a.points).slice(0, 3);
+    // Include sessionWords so clients can sort by full words at round start
+    io.to(player.id).emit("state", { ...lobby.state, cards, sessionWords: lobby.sessionWords, playerTopWords: topWords });
   });
 };
 
@@ -637,7 +658,12 @@ io.on("connection", (socket) => {
     }
     if (leaving) {
       lobby.state.lastAction = `${leaving.name} left`;
+      // If game is active, clarify action
+      if (lobby.state.status === "active") {
+        lobby.state.lastAction = `${leaving.name} left during game`;
+      }
     }
+    // Always broadcast state after player leaves
     broadcastState(lobby);
   };
   const handleReturnToLobby = () => {
@@ -737,7 +763,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("submitWord", ({ word }: { word: string }, callback?: (ack: SubmitAck) => void) => {
-    const respond = (ack: SubmitAck) => {
+    const respond = (ack: SubmitAck & { points?: number }) => {
       if (typeof callback === "function") {
         callback(ack);
       }
@@ -759,8 +785,9 @@ io.on("connection", (socket) => {
     }
     const reject = (message: string) => {
       sendError(socket.id, message);
-      respond({ ok: false, error: message });
       applyInvalidPenalty(player);
+      // Always send points as negative for penalty
+      respond({ ok: false, error: message, points: -INVALID_WORD_PENALTY });
       broadcastState(lobby);
     };
     const normalized = word?.trim().toLowerCase() || "";
@@ -780,7 +807,12 @@ io.on("connection", (socket) => {
     // Check if this player already submitted this word
     const playerWords = lobby.submittedWords.get(player.id) ?? new Set<string>();
     if (playerWords.has(normalized)) {
-      reject("You already submitted this word.");
+      // Previously this used `reject(...)` which applied an invalid-word penalty.
+      // Change: do NOT apply a penalty for resubmitting your own word —
+      // only send an error message back to the client.
+      const message = "You already submitted this word.";
+      sendError(socket.id, message);
+      respond({ ok: false, error: message });
       return;
     }
 
@@ -801,7 +833,22 @@ io.on("connection", (socket) => {
     const lengthBonus = getLengthBonus(length);
     const hiddenBonus = index !== undefined ? getHiddenBonus(length) : 0;
     const wordPoints = basePoints + lengthBonus + hiddenBonus;
+    // Calculate score delta before and after
+    const scoreBefore = player.score;
     applyValidScore(player, wordPoints);
+    let scoreDelta = player.score - scoreBefore;
+    if (index !== undefined) {
+      const revealedForPlayer = lobby.revealedByPlayer.get(socket.id);
+      if (
+        revealedForPlayer &&
+        revealedForPlayer.size === lobby.sessionWords.length &&
+        !lobby.hiddenBonusAwarded.has(player.id)
+      ) {
+        lobby.hiddenBonusAwarded.add(player.id);
+        player.score += ALL_HIDDEN_BONUS;
+        scoreDelta += ALL_HIDDEN_BONUS;
+      }
+    }
     if (index !== undefined) {
       const revealedForPlayer = lobby.revealedByPlayer.get(socket.id);
       if (
@@ -817,8 +864,8 @@ io.on("connection", (socket) => {
       index !== undefined
         ? `${player.name} found ${normalized.toUpperCase()}`
         : `${player.name} submitted ${normalized.toUpperCase()}`;
-    respond({ ok: true, word: normalized.toUpperCase() });
-    io.to(socket.id).emit("submissionAccepted", { word: normalized.toUpperCase() });
+    respond({ ok: true, word: normalized.toUpperCase(), points: scoreDelta });
+    io.to(socket.id).emit("submissionAccepted", { word: normalized.toUpperCase(), points: scoreDelta });
     broadcastState(lobby);
   });
 
@@ -910,6 +957,10 @@ io.on("connection", (socket) => {
     });
     
     lobby.state.lastAction = `${leaving.name} disconnected`;
+    // If game is active, clarify action
+    if (lobby.state.status === "active") {
+      lobby.state.lastAction = `${leaving.name} disconnected during game`;
+    }
     
     if (lobby.state.status === "lobby" && !allPlayersReady(lobby)) {
       stopLobbyCountdown(lobby);
@@ -918,9 +969,7 @@ io.on("connection", (socket) => {
       destroyLobby(lobby);
       return;
     }
-    if (leaving) {
-      lobby.state.lastAction = `${leaving.name} left`;
-    }
+    // Always broadcast state after disconnect
     broadcastState(lobby);
   });
 });
