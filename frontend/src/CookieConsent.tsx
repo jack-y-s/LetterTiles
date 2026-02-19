@@ -1,5 +1,31 @@
 import React, { useEffect, useState } from "react";
 
+const AD_CLIENT = (import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-TESTADCLIENT";
+
+const injectAds = () => {
+  try {
+    if ((window as any).__ads_injected) return;
+    // Add the AdSense loader script
+    const s = document.createElement("script");
+    s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js";
+    s.async = true;
+    s.setAttribute("data-ad-client", AD_CLIENT);
+    s.onload = () => {
+      try {
+        // Initialize any inline ad placeholders
+        (window as any).adsbygoogle = (window as any).adsbygoogle || [];
+        (window as any).adsbygoogle.push({});
+      } catch (e) {
+        // ignore
+      }
+    };
+    document.head.appendChild(s);
+    (window as any).__ads_injected = true;
+  } catch (e) {
+    // ignore
+  }
+};
+
 const CookieConsent: React.FC = () => {
   const [visible, setVisible] = useState(false);
 
@@ -7,6 +33,9 @@ const CookieConsent: React.FC = () => {
     try {
       const val = localStorage.getItem("cookieConsent");
       if (!val) setVisible(true);
+      if (val === "accepted") {
+        injectAds();
+      }
     } catch (e) {
       setVisible(false);
     }
@@ -15,6 +44,7 @@ const CookieConsent: React.FC = () => {
   const accept = () => {
     try { localStorage.setItem("cookieConsent", "accepted"); } catch {}
     setVisible(false);
+    injectAds();
   };
 
   const decline = () => {

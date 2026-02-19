@@ -1234,6 +1234,15 @@ const App = () => {
         </div>
       )}
         <footer style={{ textAlign: "center", padding: 12, opacity: 0.9 }}>
+          <div style={{ marginBottom: 8 }}>
+            <ins
+              className="adsbygoogle"
+              style={{ display: "inline-block", width: 320, height: 50, background: "#f6f6f6", color: "#666", lineHeight: "50px", textAlign: "center" }}
+              data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-TESTADCLIENT"}
+              data-ad-slot="1234567890"
+              data-ad-format="auto"
+            />
+          </div>
           <a href="/privacy.html">Privacy & Cookie Policy</a> &nbsp;·&nbsp; <a href="/contact.html">Contact</a>
         </footer>
         <CookieConsent />
