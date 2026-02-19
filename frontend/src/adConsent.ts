@@ -9,33 +9,7 @@ const getCookie = (name: string) => {
   }
 };
 
-const parseMaybeJson = (value: string | null) => {
-  if (!value) return null;
-  try {
-    return JSON.parse(value);
-  } catch (e) {
-    // CookieYes may write a compact flat format like:
-    // "consentid:...,consent:yes,necessary:yes,advertisement:yes"
-    try {
-      if (value.indexOf(':') !== -1) {
-        const parts = value.split(',').map(p => p.trim()).filter(Boolean);
-        const obj: Record<string, any> = {};
-        for (const part of parts) {
-          const [k, ...rest] = part.split(':');
-          if (!k) continue;
-          const raw = rest.join(':').trim();
-          if (/^yes$/i.test(raw)) obj[k] = true;
-          else if (/^no$/i.test(raw)) obj[k] = false;
-          else obj[k] = raw;
-        }
-        return obj;
-      }
-    } catch (e2) {
-      // fall through to null
-    }
-    return null;
-  }
-};
+// removed complex/flat-cookie parsing — prefer JSON parse or simple substring checks
 
 const evaluateAdConsentFromCookieYes = (consentObj: any): boolean | null => {
   if (!consentObj) return null;
@@ -64,12 +38,30 @@ const tryResolveCookieYesConsentSync = (): boolean | null => {
       if (typeof v === 'boolean') return v;
     }
 
+    // If CookieYes didn't expose a JS API, try cookies. Prefer JSON-formatted cookie
+    // but also handle simple legacy/compact strings by substring checks.
     const candidates = ['cookieyes_consent', 'cookieyes-consent', 'cookieyes_status', 'cookieyes'];
     for (const name of candidates) {
       const raw = getCookie(name);
-      const parsed = parseMaybeJson(raw);
-      const v = evaluateAdConsentFromCookieYes(parsed);
-      if (typeof v === 'boolean') return v;
+      if (!raw) continue;
+      // If value looks like JSON, try to parse and evaluate
+      const trimmed = raw.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const obj = JSON.parse(trimmed);
+          const v = evaluateAdConsentFromCookieYes(obj);
+          if (typeof v === 'boolean') return v;
+        } catch (e) {
+          // fall back to substring checks below
+        }
+      }
+      // Simple substring checks for common affirmative markers
+      if (/consent:yes/i.test(raw) || /advertisement:yes/i.test(raw) || /advertisement=true/i.test(raw) || /consent=true/i.test(raw)) {
+        return true;
+      }
+      if (/consent:no/i.test(raw) || /advertisement:no/i.test(raw) || /advertisement=false/i.test(raw) || /consent=false/i.test(raw)) {
+        return false;
+      }
     }
   } catch (e) {
     // ignore
@@ -82,7 +74,12 @@ const resolveClient = (): string | null => {
     if (AD_CLIENT) return AD_CLIENT;
     const ins = document.querySelector('ins.adsbygoogle[data-ad-client]') as HTMLElement | null;
     const attr = ins?.getAttribute('data-ad-client') ?? '';
-    return attr || null;
+    if (attr) return attr;
+    // Fallback: meta tag may carry the publisher id
+    const meta = document.querySelector('meta[name="google-adsense-account"]') as HTMLMetaElement | null;
+    const metaVal = meta?.getAttribute('content') ?? '';
+    if (metaVal) return metaVal;
+    return null;
   } catch (e) {
     return null;
   }
