@@ -55,7 +55,8 @@ type JoinMode = "random" | "create" | "joinById";
 
 // Use the custom API hostname for production. Prefer Vite `VITE_API_URL`,
 // fall back to older `REACT_APP_API_URL` if present, then localhost for dev.
-const socketUrl = (import.meta as any).env.VITE_API_URL || "https://api.letter-tiles.com";
+const API_BASE = (import.meta as any).env.VITE_API_URL || "http://localhost:3001";
+const socketUrl = API_BASE;
 
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
@@ -241,7 +242,12 @@ const App = () => {
   };
 
   useEffect(() => {
-    const socketInstance = io(socketUrl, { transports: ["websocket"] });
+    const socketInstance = io(socketUrl, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000
+    });
 
     socketInstance.on("connect", () => {
       setError(null);
@@ -677,6 +683,21 @@ const App = () => {
 
   return (
     <div className="page">
+      {/* Backend connection banner - visible when socket exists but is disconnected */}
+      {socket && !socket.connected && (
+        <div style={{ background: '#ffefe6', color: '#422', padding: '8px 12px', textAlign: 'center' }}>
+          <span style={{ marginRight: 12 }}>Backend unreachable — some features may be disabled.</span>
+          <button
+            onClick={() => {
+              setError(null);
+              try { (socket as any).connect(); } catch (e) { window.location.reload(); }
+            }}
+            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {/* Toast notifications under Time Left */}
       <div className="toast-center-row">
         <div className="toast-lane toast-result">
