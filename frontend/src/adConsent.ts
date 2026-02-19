@@ -126,14 +126,70 @@ const injectAds = () => {
         console.log('[adConsent] injectAds: ads script loaded — pushing');
         (window as any).adsbygoogle = (window as any).adsbygoogle || [];
         (window as any).adsbygoogle.push({});
-        try {
-          fetch('/ad-event', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ client, event: 'inject_success', info: { insPresent: !!ins, href: location.href } }),
-            keepalive: true
-          }).catch(() => {});
-        } catch (e) {}
+        // Wait briefly for a creative iframe to appear. If none shows up,
+        // treat this as a likely "not approved / no creative" situation
+        // and remove/hide the placeholder so users don't see an empty slot.
+        const waitForCreative = (el: Element | null, timeout = 6000) =>
+          new Promise<boolean>((resolve) => {
+            if (!el) return resolve(false);
+            let resolved = false;
+            const check = () => {
+              try {
+                const iframe = el.querySelector('iframe') as HTMLIFrameElement | null;
+                if (iframe && (iframe.clientHeight > 0 || iframe.clientWidth > 0)) {
+                  resolved = true;
+                  resolve(true);
+                }
+              } catch (e) {
+                // ignore
+              }
+            };
+            // Observe DOM changes under the `ins` element
+            const obs = new MutationObserver(() => {
+              check();
+              if (resolved) obs.disconnect();
+            });
+            obs.observe(el, { childList: true, subtree: true });
+            // Initial immediate check
+            check();
+            // Fallback timeout
+            setTimeout(() => {
+              obs.disconnect();
+              if (!resolved) {
+                // Final check before resolving false
+                check();
+                resolve(resolved);
+              }
+            }, timeout);
+          });
+
+        waitForCreative(ins, 6000).then((hasCreative) => {
+          try {
+            if (hasCreative) {
+              fetch('/ad-event', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ client, event: 'inject_success', info: { insPresent: !!ins, href: location.href } }),
+                keepalive: true
+              }).catch(() => {});
+            } else {
+              console.warn('[adConsent] injectAds: no creative detected — removing placeholder');
+              try {
+                fetch('/ad-event', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ client, event: 'inject_no_creative', info: { insPresent: !!ins, href: location.href } }),
+                  keepalive: true
+                }).catch(() => {});
+              } catch (e) {}
+              if (ins && ins.parentNode) {
+                ins.parentNode.removeChild(ins);
+              }
+            }
+          } catch (e) {
+            // ignore
+          }
+        }).catch(() => {});
       } catch (e) {
         console.warn('[adConsent] injectAds: push failed', e);
         try {
