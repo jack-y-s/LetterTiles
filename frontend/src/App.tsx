@@ -52,7 +52,9 @@ type ChatMessage = {
 type JoinMode = "random" | "create" | "joinById";
 
 
-const socketUrl = "https://lettertiles-backend.onrender.com";
+// Use the custom API hostname for production. If the custom domain
+// is not yet configured, fallback to the Render service hostname.
+const socketUrl = process.env.REACT_APP_API_URL || "https://api.letter-tiles.com";
 
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
