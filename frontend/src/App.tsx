@@ -243,7 +243,8 @@ const App = () => {
 
   useEffect(() => {
     const socketInstance = io(socketUrl, {
-      transports: ["websocket"],
+      // Allow polling fallback (don't force websocket) so initial handshake
+      // can succeed in environments where WebSocket upgrade is blocked.
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000
@@ -714,20 +715,11 @@ const App = () => {
       <header className="topbar">
         <div className="brand">
           <div className="brand-row">
-            <div className="brand-tiles" aria-label="Letter Tiles">
-              <div className="brand-tiles-row">
-                {"LETTER".split("").map((char, index) => (
-                  <span key={`letter-${index}`} className="brand-tile">
-                    [ {char} ]
-                  </span>
-                ))}
-              </div>
-              <div className="brand-tiles-row">
-                {"TILES".split("").map((char, index) => (
-                  <span key={`tiles-${index}`} className="brand-tile">
-                    [ {char} ]
-                  </span>
-                ))}
+            <div className="brand-logo" aria-label="Letter Tiles" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <img src="/logo-128x128.png" alt="Letter Tiles logo" style={{ width: 48, height: 48, objectFit: 'contain' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1, textAlign: 'left' }}>
+                <span style={{ fontWeight: 700, color: '#ef476f', fontSize: 18, letterSpacing: 1 }}>LETTER</span>
+                <span style={{ fontWeight: 700, color: '#ef476f', fontSize: 18, letterSpacing: 1 }}>TILES</span>
               </div>
             </div>
             <span className={`live-pill ${game.status === "active" ? "is-live" : ""}`}>
