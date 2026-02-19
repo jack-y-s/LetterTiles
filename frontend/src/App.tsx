@@ -1251,7 +1251,7 @@ const App = () => {
             <ins
               className="adsbygoogle"
               style={{ display: "inline-block", width: 320, height: 50, background: "#f6f6f6", color: "#666", lineHeight: "50px", textAlign: "center" }}
-              data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || ""}
+              data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-3913612227802101"}
               data-ad-slot="1234567890"
               data-ad-format="auto"
               data-adtest={(import.meta as any).env.VITE_ADSENSE_TEST === "on" ? "on" : undefined}
