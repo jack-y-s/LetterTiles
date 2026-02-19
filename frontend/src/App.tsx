@@ -467,8 +467,9 @@ const App = () => {
       setError("Enter a name to create your account.");
       return;
     }
-    setAccountName(trimmed);
-    setAccountNameInput(trimmed);
+    const normalized = trimmed.toUpperCase();
+    setAccountName(normalized);
+    setAccountNameInput(normalized);
     setError(null);
   };
 
@@ -478,7 +479,7 @@ const App = () => {
     }
     
     if (joinMode === "create") {
-      socket.emit("createPrivateLobby", { name: accountName.trim() }, (result: any) => {
+      socket.emit("createPrivateLobby", { name: accountName.trim().toUpperCase() }, (result: any) => {
         if (result?.ok) {
           socket.emit("setReady", { ready: true });
           setJoined(true);
@@ -494,13 +495,13 @@ const App = () => {
         setError("Please enter a lobby ID");
         return;
       }
-      socket.emit("join", { name: accountName.trim(), lobbyId });
+      socket.emit("join", { name: accountName.trim().toUpperCase(), lobbyId });
       socket.emit("setReady", { ready: true });
       setJoined(true);
       setError(null);
     } else {
       // Random join
-      socket.emit("join", { name: accountName.trim() });
+      socket.emit("join", { name: accountName.trim().toUpperCase() });
       socket.emit("setReady", { ready: true });
       setJoined(true);
       setError(null);
@@ -750,95 +751,96 @@ const App = () => {
 
       <section className="hero-row">
         <div className="side-panels side-left">
-          {!hasAccount ? (
-            <form className="card" onSubmit={handleCreateAccount}>
-              <div className="leaderboard-header">
-                <span>Choose Display Name</span>
-              </div>
-              <p className="muted">Pick a display name for this session.</p>
-              <input
-                value={accountNameInput}
-                onChange={(event) => setAccountNameInput(event.target.value)}
-                placeholder="Your name"
-              />
-              <button type="submit">Pick Name</button>
-            </form>
-          ) : (
-            <div className="card panel-box">
-              <div className="lobby-id-line">
-                <h2 className="section-title">Lobby</h2>
-                {game.lobbyId && (
+            {!hasAccount ? (
+              <form className="card" onSubmit={handleCreateAccount}>
+                <div className="leaderboard-header">
+                  <span>Choose Display Name</span>
+                </div>
+                <p className="muted">Pick a display name for this session.</p>
+                <input
+                  value={accountNameInput}
+                  onChange={(event) => setAccountNameInput(event.target.value.toUpperCase())}
+                  placeholder="Your name"
+                />
+                <button type="submit">Pick Name</button>
+              </form>
+            ) : (
+              <div className="card panel-box">
+                <div className="lobby-id-line">
+                  <h2 className="section-title">Lobby</h2>
+                  {game.lobbyId && (
+                    <button
+                      type="button"
+                      className="lobby-id-badge-top"
+                      onClick={handleCopyLobbyId}
+                      aria-label="Copy lobby ID"
+                    >
+                      <span>{game.lobbyId}</span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H10V7h9v14z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                <p className="muted">Display Name: {accountName.toUpperCase()}</p>
+                {!joined && (
+                  <>
+                    <div className="join-mode-selector">
+                      <label>
+                        <input
+                          type="radio"
+                          name="joinMode"
+                          value="random"
+                          checked={joinMode === "random"}
+                          onChange={() => setJoinMode("random")}
+                        />
+                        <span>Join Random</span>
+                      </label>
+                      <label>
+                        <input
+                          type="radio"
+                          name="joinMode"
+                          value="create"
+                          checked={joinMode === "create"}
+                          onChange={() => setJoinMode("create")}
+                        />
+                        <span>Create Private</span>
+                      </label>
+                      <label>
+                        <input
+                          type="radio"
+                          name="joinMode"
+                          value="joinById"
+                          checked={joinMode === "joinById"}
+                          onChange={() => setJoinMode("joinById")}
+                        />
+                        <span>Join by ID</span>
+                      </label>
+                    </div>
+                    {joinMode === "joinById" && (
+                      <input
+                        value={lobbyIdInput}
+                        onChange={(event) => setLobbyIdInput(event.target.value)}
+                        placeholder="Enter lobby ID"
+                      />
+                    )}
+                  </>
+                )}
+                <button type="button" onClick={handleJoin} disabled={joined}>
+                  {joined ? "Joined" : "Join lobby"}
+                </button>
+                {joined && game.status !== "active" && lobbyCountdown === null && !me?.ready && (
                   <button
                     type="button"
-                    className="lobby-id-badge-top"
-                    onClick={handleCopyLobbyId}
-                    aria-label="Copy lobby ID"
+                    className="leave-button"
+                    onClick={handleLeaveLobby}
                   >
-                    <span>{game.lobbyId}</span>
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                      <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H10V7h9v14z" />
-                    </svg>
+                    Leave lobby
                   </button>
                 )}
               </div>
-              <p className="muted">Display Name: {accountName}</p>
-              {!joined && (
-                <>
-                  <div className="join-mode-selector">
-                    <label>
-                      <input
-                        type="radio"
-                        name="joinMode"
-                        value="random"
-                        checked={joinMode === "random"}
-                        onChange={() => setJoinMode("random")}
-                      />
-                      <span>Join Random</span>
-                    </label>
-                    <label>
-                      <input
-                        type="radio"
-                        name="joinMode"
-                        value="create"
-                        checked={joinMode === "create"}
-                        onChange={() => setJoinMode("create")}
-                      />
-                      <span>Create Private</span>
-                    </label>
-                    <label>
-                      <input
-                        type="radio"
-                        name="joinMode"
-                        value="joinById"
-                        checked={joinMode === "joinById"}
-                        onChange={() => setJoinMode("joinById")}
-                      />
-                      <span>Join by ID</span>
-                    </label>
-                  </div>
-                  {joinMode === "joinById" && (
-                    <input
-                      value={lobbyIdInput}
-                      onChange={(event) => setLobbyIdInput(event.target.value)}
-                      placeholder="Enter lobby ID"
-                    />
-                  )}
-                </>
-              )}
-              <button type="button" onClick={handleJoin} disabled={joined}>
-                {joined ? "Joined" : "Join lobby"}
-              </button>
-              {joined && game.status !== "active" && lobbyCountdown === null && !me?.ready && (
-                <button
-                  type="button"
-                  className="leave-button"
-                  onClick={handleLeaveLobby}
-                >
-                  Leave lobby
-                </button>
-              )}
-            </div>
-          )}
+            )}
+          
 
           <div className="card panel-box">
             <div className="leaderboard-header">
@@ -863,7 +865,7 @@ const App = () => {
                       <span className="avatar" style={{ background: player.avatarColor }}>
                         {player.name.slice(0, 1).toUpperCase()}
                       </span>
-                      <span>{player.name}</span>
+                      <span>{player.name.toUpperCase()}</span>
                       <span style={{ display: "flex", alignItems: "center", marginLeft: "auto", gap: 8 }}>
                         {player.id === me?.id && joined && game.status === "lobby" && (
                           <label className="ready-toggle" style={{ marginRight: 0 }}>
@@ -1069,7 +1071,7 @@ const App = () => {
                   <span className={`avatar ${index === 0 ? "leader" : ""}`} style={{ background: player.avatarColor }}>
                     {player.name.slice(0, 1).toUpperCase()}
                   </span>
-                  <span>{player.name}</span>
+                  <span>{player.name.toUpperCase()}</span>
                   <span className="score">
                     {index === 0 && (
                       <svg className="crown" viewBox="0 0 24 24" aria-label="Leader" role="img">
@@ -1181,7 +1183,7 @@ const App = () => {
                 {game.winner.name.slice(0, 1).toUpperCase()}
               </span>
             )}
-            <h2>{isDraw ? "Draw, good try!" : `${game.winner.name} wins!`}</h2>
+            <h2>{isDraw ? "Draw, good try!" : `${game.winner.name.toUpperCase()} wins!`}</h2>
             {!isDraw && (
               <p className="winner-message">Congratulations! Great round.</p>
             )}
@@ -1195,7 +1197,7 @@ const App = () => {
                     <li key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 20 }}>{["🥇", "🥈", "🥉"][idx]}</span>
-                        <span style={{ fontWeight: 700 }}>{p.name}</span>
+                        <span style={{ fontWeight: 700 }}>{p.name.toUpperCase()}</span>
                       </span>
                       <span style={{ fontWeight: 700 }}>{p.score}</span>
                     </li>
