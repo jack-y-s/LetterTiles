@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
+import CookieConsent from "./CookieConsent";
 
 type Player = {
   id: string;
@@ -52,9 +53,9 @@ type ChatMessage = {
 type JoinMode = "random" | "create" | "joinById";
 
 
-// Use the custom API hostname for production. If the custom domain
-// is not yet configured, fallback to the Render service hostname.
-const socketUrl = process.env.REACT_APP_API_URL || "https://api.letter-tiles.com";
+// Use the custom API hostname for production. Prefer Vite `VITE_API_URL`,
+// fall back to older `REACT_APP_API_URL` if present, then localhost for dev.
+const socketUrl = (import.meta as any).env.VITE_API_URL || "http://localhost:3001";
 
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
@@ -1232,6 +1233,10 @@ const App = () => {
           </div>
         </div>
       )}
+        <footer style={{ textAlign: "center", padding: 12, opacity: 0.9 }}>
+          <a href="/privacy.html">Privacy & Cookie Policy</a> &nbsp;·&nbsp; <a href="/contact.html">Contact</a>
+        </footer>
+        <CookieConsent />
     </div>
   );
 };

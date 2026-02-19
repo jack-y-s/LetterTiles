@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Sitemap: https://www.letter-tiles.com/sitemap.xml
+Host: https://www.letter-tiles.com
