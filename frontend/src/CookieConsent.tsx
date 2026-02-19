@@ -89,34 +89,121 @@ const initConsentModeDefaults = () => {
   }
 };
 
-// Expose a very small, self-hosted CMP API so other scripts that probe for
-// `__tcfapi` / `__cmp` won't fail. This is NOT a certified IAB TCF CMP.
-// It provides minimal responses and allows the page to respond synchronously
-// to simple queries. For full IAB compliance use a certified CMP.
-const exposeSimpleCmpApi = () => {
+// Helpers to integrate CookieYes: detect consent state (sync where possible)
+// and listen for changes. When ad consent is granted we update Google
+// Consent Mode and inject AdSense.
+const getCookie = (name: string) => {
+  try {
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? decodeURIComponent(m[2]) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+const parseMaybeJson = (value: string | null) => {
+  if (!value) return null;
+  try { return JSON.parse(value); } catch (e) { return null; }
+};
+
+const evaluateAdConsentFromCookieYes = (consentObj: any): boolean | null => {
+  if (!consentObj) return null;
+  // CookieYes commonly exposes a JSON with marketing/advertising keys
+  if (typeof consentObj === 'object') {
+    if (typeof consentObj.marketing === 'boolean') return consentObj.marketing;
+    if (typeof consentObj.advertising === 'boolean') return consentObj.advertising;
+    // Some setups use categories/purposes map
+    if (consentObj.purposes && typeof consentObj.purposes === 'object') {
+      // purpose index for advertising varies; check common keys
+      if (typeof consentObj.purposes.marketing === 'boolean') return consentObj.purposes.marketing;
+    }
+  }
+  return null;
+};
+
+const tryResolveCookieYesConsentSync = (): boolean | null => {
   try {
     const win = window as any;
-    if (!win.__tcfapi) {
-      win.__tcfapi = function (cmd: string, version: number, callback: Function, args?: any) {
-        if (typeof callback !== 'function') return;
-        if (cmd === 'getTCData') {
-          const tcData = { tcString: '', gdprApplies: false, eventStatus: 'tcloaded', purpose: { consents: {} } };
-          callback(tcData, true);
-        } else if (cmd === 'addEventListener') {
-          // Immediately call listener with a simple event indicating loaded
-          const listener = args && args.listener ? args.listener : callback;
-          try { listener({ eventStatus: 'tcloaded' }, true); } catch (e) {}
-          callback({}, true);
-        } else {
-          callback({}, true);
-        }
-      };
+    // 1) check typical global objects
+    if (win.cookieyes && typeof win.cookieyes.getConsent === 'function') {
+      try {
+        const c = win.cookieyes.getConsent();
+        const v = evaluateAdConsentFromCookieYes(c);
+        if (typeof v === 'boolean') return v;
+      } catch (e) {}
     }
-    if (!win.__cmp) {
-      win.__cmp = function (command: string, parameter: any, callback: Function) {
-        if (typeof callback === 'function') callback({ gdprApplies: false }, true);
-      };
+    if (win.cookieyes && win.cookieyes.consent) {
+      const v = evaluateAdConsentFromCookieYes(win.cookieyes.consent);
+      if (typeof v === 'boolean') return v;
     }
+
+    // 2) parse standard CookieYes cookie names (try a few known names)
+    const candidates = ['cookieyes_consent', 'cookieyes-consent', 'cookieyes_status', 'cookieyes'];
+    for (const name of candidates) {
+      const raw = getCookie(name);
+      const parsed = parseMaybeJson(raw);
+      const v = evaluateAdConsentFromCookieYes(parsed);
+      if (typeof v === 'boolean') return v;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+};
+
+const registerCookieYesListeners = () => {
+  try {
+    const win = window as any;
+
+    const handle = (adGranted: boolean | null) => {
+      if (adGranted === null) return;
+      try {
+        const adStorage = adGranted ? 'granted' : 'denied';
+        (window as any).gtag && (window as any).gtag('consent', 'update', { ad_storage: adStorage, analytics_storage: adGranted ? 'granted' : 'denied' });
+        if (adGranted) injectAds();
+      } catch (e) {}
+    };
+
+    // Try synchronous resolution first
+    const initial = tryResolveCookieYesConsentSync();
+    if (typeof initial === 'boolean') handle(initial);
+
+    // Listen for a few possible custom events CookieYes might dispatch.
+    // (CookieYes may dispatch different event names depending on integration.)
+    const eventNames = ['cookieyes-consent-changed', 'cookieyes_consent_changed', 'cookieyes:consent', 'cookieyes:change', 'cookieyes.consent.updated'];
+    for (const ev of eventNames) {
+      window.addEventListener(ev, () => {
+        const val = tryResolveCookieYesConsentSync();
+        handle(val);
+      });
+    }
+
+    // Also attempt to use the IAB __tcfapi when available (async callback)
+    if (typeof win.__tcfapi === 'function') {
+      try {
+        win.__tcfapi('getTCData', 2, function (tcData: any, success: boolean) {
+          if (success && tcData && tcData.purpose && tcData.purpose.consents) {
+            // heuristic: if any purpose consent present, treat as granted
+            const purposes = tcData.purpose.consents;
+            const any = Object.keys(purposes).some(k => !!purposes[k]);
+            handle(any);
+          }
+        });
+      } catch (e) {}
+    }
+
+    // Fallback: poll the common CookieYes cookie for changes for up to 30s
+    let last = getCookie('cookieyes_consent') || getCookie('cookieyes-consent') || getCookie('cookieyes');
+    const start = Date.now();
+    const poll = setInterval(() => {
+      const nowRaw = getCookie('cookieyes_consent') || getCookie('cookieyes-consent') || getCookie('cookieyes');
+      if (nowRaw !== last) {
+        last = nowRaw;
+        const val = tryResolveCookieYesConsentSync();
+        handle(val);
+      }
+      if (Date.now() - start > 30000) clearInterval(poll);
+    }, 1000);
   } catch (e) {
     // ignore
   }
