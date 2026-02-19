@@ -55,7 +55,7 @@ type JoinMode = "random" | "create" | "joinById";
 
 // Use the custom API hostname for production. Prefer Vite `VITE_API_URL`,
 // fall back to older `REACT_APP_API_URL` if present, then localhost for dev.
-const API_BASE = (import.meta as any).env.VITE_API_URL || "http://localhost:3001";
+const API_BASE = (import.meta as any).env.VITE_API_URL || "https://api.letter-tiles.com";
 const socketUrl = API_BASE;
 
 const formatTime = (seconds: number) => {
