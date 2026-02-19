@@ -4,7 +4,7 @@ const AD_CLIENT = (import.meta as any).env.VITE_ADSENSE_CLIENT || "";
 const API_URL = (import.meta as any).env.VITE_API_URL || "http://localhost:3001";
 const ENABLE_LOCAL_AD_EVENT = (import.meta as any).env.VITE_ENABLE_AD_EVENT_FOR_LOCAL === 'true';
 
-const postEvent = async (event: string, info?: any) => {
+const postEvent = async (event: string, info?: any, client?: string) => {
   // Avoid noisy connection-refused errors during local development when
   // the backend isn't running. Only send events to localhost if explicitly enabled.
   if ((API_URL.includes('localhost') || API_URL.includes('127.0.0.1')) && !ENABLE_LOCAL_AD_EVENT) {
@@ -15,7 +15,7 @@ const postEvent = async (event: string, info?: any) => {
     await fetch(`${API_URL}/ad-event`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event, client: AD_CLIENT, info })
+      body: JSON.stringify({ event, client: client ?? AD_CLIENT, info })
     });
   } catch (e) {
     // ignore network/logging failures
@@ -24,37 +24,55 @@ const postEvent = async (event: string, info?: any) => {
 
 const injectAds = () => {
   try {
-    if (!AD_CLIENT) {
+    // Resolve the ad client to use: prefer compiled env, fall back to any
+    // existing <ins class="adsbygoogle" data-ad-client="..."> in the DOM.
+    let client = AD_CLIENT || "";
+    if (!client) {
+      try {
+        const ins = document.querySelector('ins.adsbygoogle[data-ad-client]') as HTMLElement | null;
+        const attr = ins?.getAttribute("data-ad-client") ?? "";
+        if (attr) {
+          client = attr;
+          // eslint-disable-next-line no-console
+          console.debug("Using runtime data-ad-client fallback for AdSense injection.", client);
+        }
+      } catch (e) {
+        // ignore DOM access errors
+      }
+    }
+
+    if (!client) {
       // Reduce noise in console; this is expected in many dev setups.
       // eslint-disable-next-line no-console
-      console.debug("VITE_ADSENSE_CLIENT not set; skipping AdSense injection.");
-      postEvent("skip_inject_no_client");
+      console.debug("VITE_ADSENSE_CLIENT not set and no DOM fallback found; skipping AdSense injection.");
+      postEvent("skip_inject_no_client", undefined, client);
       return;
     }
+
     if ((window as any).__ads_injected) return;
     // Add the AdSense loader script
     const s = document.createElement("script");
     s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js";
     s.async = true;
-    s.setAttribute("data-ad-client", AD_CLIENT);
+    s.setAttribute("data-ad-client", client);
     s.onload = () => {
       try {
         // Initialize any inline ad placeholders
         (window as any).adsbygoogle = (window as any).adsbygoogle || [];
         (window as any).adsbygoogle.push({});
-        postEvent("injected");
+        postEvent("injected", undefined, client);
       } catch (e) {
-        postEvent("inject_init_error", { message: String(e) });
+        postEvent("inject_init_error", { message: String(e) }, client);
       }
     };
     s.onerror = () => {
-      postEvent("inject_error");
+      postEvent("inject_error", undefined, client);
     };
     document.head.appendChild(s);
     (window as any).__ads_injected = true;
   } catch (e) {
     // ignore
-    postEvent("inject_exception", { message: String(e) });
+    postEvent("inject_exception", { message: String(e) }, undefined);
   }
 };
 
