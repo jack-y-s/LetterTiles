@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import CookieConsent from "./CookieConsent";
+// CookieConsent removed; external CMP (CookieYes) now provides consent UI.
 
 type Player = {
   id: string;
@@ -1259,7 +1259,7 @@ const App = () => {
           </div>
           <a href="/privacy.html">Privacy & Cookie Policy</a> &nbsp;·&nbsp; <a href="/contact.html">Contact</a>
         </footer>
-        <CookieConsent />
+        {/* CookieConsent removed; CookieYes handles the banner and consent */}
     </div>
   );
 };
