@@ -1251,17 +1251,19 @@ const App = () => {
         </div>
       )}
         <footer style={{ textAlign: "center", padding: 12, opacity: 0.9 }}>
-          <div style={{ marginBottom: 8 }}>
-              <ins
+          <div className="footer-links" style={{ marginBottom: 8 }}>
+            <a href="/privacy.html">Privacy & Cookie Policy</a> &nbsp;·&nbsp; <a href="/contact.html">Contact</a>
+          </div>
+          <div className="ad-slot" aria-hidden={false} role="complementary" aria-label="Advertisement">
+            <ins
               className="adsbygoogle"
               style={{ display: "inline-block", width: 320, height: 50, background: "#f6f6f6", color: "#666", lineHeight: "50px", textAlign: "center" }}
-                data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-3913612227802101"}
-                data-ad-slot="8236587086"
+              data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-3913612227802101"}
+              data-ad-slot="8236587086"
               data-ad-format="auto"
               data-adtest={(import.meta as any).env.VITE_ADSENSE_TEST === "on" ? "on" : undefined}
             />
           </div>
-          <a href="/privacy.html">Privacy & Cookie Policy</a> &nbsp;·&nbsp; <a href="/contact.html">Contact</a>
         </footer>
         {/* CookieConsent removed; CookieYes handles the banner and consent */}
     </div>

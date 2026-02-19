@@ -95,6 +95,14 @@ const injectAds = () => {
     console.log('[adConsent] injectAds: resolved client=', client);
     if (!client) {
       console.log('[adConsent] injectAds: no client found, aborting');
+      try {
+        fetch('/ad-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client: null, event: 'inject_aborted', info: { reason: 'no_client' } }),
+          keepalive: true
+        }).catch(() => {});
+      } catch (e) {}
       return;
     }
     // Ensure an <ins class="adsbygoogle" data-ad-client> exists so push() works
@@ -118,12 +126,36 @@ const injectAds = () => {
         console.log('[adConsent] injectAds: ads script loaded — pushing');
         (window as any).adsbygoogle = (window as any).adsbygoogle || [];
         (window as any).adsbygoogle.push({});
+        try {
+          fetch('/ad-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client, event: 'inject_success', info: { insPresent: !!ins, href: location.href } }),
+            keepalive: true
+          }).catch(() => {});
+        } catch (e) {}
       } catch (e) {
         console.warn('[adConsent] injectAds: push failed', e);
+        try {
+          fetch('/ad-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client, event: 'inject_push_failed', info: { error: String(e) } }),
+            keepalive: true
+          }).catch(() => {});
+        } catch (e2) {}
       }
     };
     s.onerror = () => {
       console.warn('[adConsent] injectAds: script load error');
+      try {
+        fetch('/ad-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client, event: 'inject_script_error', info: null }),
+          keepalive: true
+        }).catch(() => {});
+      } catch (e) {}
     };
     document.head.appendChild(s);
     (window as any).__ads_injected = true;

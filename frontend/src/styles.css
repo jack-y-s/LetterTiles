@@ -398,6 +398,24 @@ html,
 
 .lobby-countdown {
   display: grid;
+
+/* Ad slot helpers: reserve space, center content, and keep footer links above ads */
+.ad-slot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 50px; /* reserve default banner height */
+}
+.ad-slot ins.adsbygoogle {
+  display: inline-block !important;
+  max-width: 100%;
+}
+.footer-links {
+  position: relative;
+  z-index: 20; /* ensure links stay above CMP elements if necessary */
+  margin-bottom: 6px;
+}
   place-items: center;
   margin-top: 6px;
 }
