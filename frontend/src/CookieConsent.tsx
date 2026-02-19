@@ -76,12 +76,63 @@ const injectAds = () => {
   }
 };
 
+const initConsentModeDefaults = () => {
+  try {
+    (window as any).dataLayer = (window as any).dataLayer || [];
+    if (!(window as any).gtag) {
+      (window as any).gtag = function () { (window as any).dataLayer.push(arguments); };
+    }
+    // Start with denied storage until the user gives consent
+    (window as any).gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied' });
+  } catch (e) {
+    // ignore
+  }
+};
+
+// Expose a very small, self-hosted CMP API so other scripts that probe for
+// `__tcfapi` / `__cmp` won't fail. This is NOT a certified IAB TCF CMP.
+// It provides minimal responses and allows the page to respond synchronously
+// to simple queries. For full IAB compliance use a certified CMP.
+const exposeSimpleCmpApi = () => {
+  try {
+    const win = window as any;
+    if (!win.__tcfapi) {
+      win.__tcfapi = function (cmd: string, version: number, callback: Function, args?: any) {
+        if (typeof callback !== 'function') return;
+        if (cmd === 'getTCData') {
+          const tcData = { tcString: '', gdprApplies: false, eventStatus: 'tcloaded', purpose: { consents: {} } };
+          callback(tcData, true);
+        } else if (cmd === 'addEventListener') {
+          // Immediately call listener with a simple event indicating loaded
+          const listener = args && args.listener ? args.listener : callback;
+          try { listener({ eventStatus: 'tcloaded' }, true); } catch (e) {}
+          callback({}, true);
+        } else {
+          callback({}, true);
+        }
+      };
+    }
+    if (!win.__cmp) {
+      win.__cmp = function (command: string, parameter: any, callback: Function) {
+        if (typeof callback === 'function') callback({ gdprApplies: false }, true);
+      };
+    }
+  } catch (e) {
+    // ignore
+  }
+};
+
 const CookieConsent: React.FC = () => {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     try {
       const val = localStorage.getItem("cookieConsent");
+      // Initialize a minimal Consent Mode + CMP API on page load. This ensures
+      // other scripts can query consent and that Google Consent Mode defaults
+      // to denied until the user accepts.
+      initConsentModeDefaults();
+      exposeSimpleCmpApi();
       if (!val) setVisible(true);
       if (val === "accepted") {
         injectAds();
@@ -94,6 +145,10 @@ const CookieConsent: React.FC = () => {
   const accept = () => {
     try { localStorage.setItem("cookieConsent", "accepted"); } catch {}
     setVisible(false);
+    try {
+      // Update Google Consent Mode to granted for ads + analytics
+      (window as any).gtag && (window as any).gtag('consent', 'update', { ad_storage: 'granted', analytics_storage: 'granted' });
+    } catch (e) {}
     injectAds();
   };
 
