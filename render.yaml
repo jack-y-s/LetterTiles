@@ -22,3 +22,6 @@ services:
     staticPublishPath: dist
     rootDir: frontend
     autoDeploy: true
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://api.letter-tiles.com
