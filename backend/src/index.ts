@@ -129,6 +129,8 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://lettertiles.onrender.com"
 ];
+// Add production origins (frontend) so socket.io and API requests are allowed
+allowedOrigins.push("https://www.letter-tiles.com", "https://letter-tiles.com");
 
 const io = new Server(server, {
   cors: {
