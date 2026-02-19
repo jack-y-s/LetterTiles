@@ -174,9 +174,9 @@ const registerCookieYesListeners = () => {
         const adStorage = adGranted ? 'granted' : 'denied';
         (window as any).gtag && (window as any).gtag('consent', 'update', { ad_storage: adStorage, analytics_storage: adGranted ? 'granted' : 'denied' });
         if (adGranted) {
-          console.log('[adConsent] handle: calling injectAds()');
-          injectAds();
-        }
+              console.log('[adConsent] handle: calling injectAutoAds()');
+              injectAutoAds();
+            }
       } catch (e) {}
     };
 
@@ -231,3 +231,18 @@ export const initAdConsent = () => {
 };
 
 export default initAdConsent;
+
+// Public helper: inject Google's Auto Ads script after consent. Keeps a flag to avoid duplicate injection.
+const injectAutoAds = () => {
+  try {
+    if ((window as any).__auto_ads_injected) {
+      console.log('[adConsent] injectAutoAds: already injected');
+      return;
+    }
+    // Reuse existing injectAds() logic which appends the official Google loader script
+    injectAds();
+    (window as any).__auto_ads_injected = true;
+  } catch (e) {
+    console.warn('[adConsent] injectAutoAds: unexpected error', e);
+  }
+};
