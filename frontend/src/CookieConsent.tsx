@@ -215,11 +215,10 @@ const CookieConsent: React.FC = () => {
   useEffect(() => {
     try {
       const val = localStorage.getItem("cookieConsent");
-      // Initialize a minimal Consent Mode + CMP API on page load. This ensures
-      // other scripts can query consent and that Google Consent Mode defaults
-      // to denied until the user accepts.
+      // Initialize a minimal Consent Mode on page load. This ensures other
+      // scripts can query consent and that Google Consent Mode defaults to
+      // denied until the user accepts.
       initConsentModeDefaults();
-      exposeSimpleCmpApi();
       if (!val) setVisible(true);
       if (val === "accepted") {
         injectAds();
