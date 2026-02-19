@@ -116,6 +116,14 @@ const dictionary = rawWords
 const dictionarySet = new Set(dictionary);
 
 const app = express();
+// Trust proxies (Cloudflare) so Express derives client IPs properly
+app.set("trust proxy", true);
+
+// Expose the real client IP (prefer Cloudflare header) on the request for logging and rate-limiting
+app.use((req, _res, next) => {
+  (req as any).realIP = (req.headers["cf-connecting-ip"] as string) || req.ip;
+  next();
+});
 const server = http.createServer(app);
 const allowedOrigins = [
   "http://localhost:5173",
@@ -642,6 +650,8 @@ setInterval(() => {
 }, 1000);
 
 io.on("connection", (socket) => {
+  const clientIP = (socket.handshake.headers["cf-connecting-ip"] as string) || socket.conn.remoteAddress;
+  console.log(`socket connected ${socket.id} ip=${clientIP}`);
   const handleLeaveLobby = () => {
     const lobby = getLobbyForSocket(socket.id);
     if (!lobby) {
