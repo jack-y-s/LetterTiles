@@ -1,0 +1,4 @@
+# ads.txt for letter-tiles.com
+# Publisher: Letter Tiles
+# Google AdSense publisher ID
+google.com, pub-3913612227802101, DIRECT, f08c47fec0942fa0

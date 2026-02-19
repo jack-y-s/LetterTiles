@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
+import initAdConsent from "./adConsent";
 // CookieConsent removed; external CMP (CookieYes) now provides consent UI.
 
 type Player = {
@@ -242,6 +243,9 @@ const App = () => {
   };
 
   useEffect(() => {
+    // Initialize ad consent manager (listens for CookieYes / TCF signals)
+    try { initAdConsent(); } catch (e) {}
+
     const socketInstance = io(socketUrl, {
       // Allow polling fallback (don't force websocket) so initial handshake
       // can succeed in environments where WebSocket upgrade is blocked.
@@ -1248,11 +1252,11 @@ const App = () => {
       )}
         <footer style={{ textAlign: "center", padding: 12, opacity: 0.9 }}>
           <div style={{ marginBottom: 8 }}>
-            <ins
+              <ins
               className="adsbygoogle"
               style={{ display: "inline-block", width: 320, height: 50, background: "#f6f6f6", color: "#666", lineHeight: "50px", textAlign: "center" }}
-              data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-3913612227802101"}
-              data-ad-slot="1234567890"
+                data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-3913612227802101"}
+                data-ad-slot="8236587086"
               data-ad-format="auto"
               data-adtest={(import.meta as any).env.VITE_ADSENSE_TEST === "on" ? "on" : undefined}
             />
