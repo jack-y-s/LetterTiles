@@ -1508,6 +1508,34 @@ ul {
     transform: none;
     align-items: flex-end;
   }
+  /* Stack toast lanes vertically to avoid overlap on narrow screens */
+  .toast-center-row {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 72px;
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    pointer-events: none;
+    z-index: 1100;
+    padding: 0 12px;
+  }
+
+  .toast-center-row .toast-lane {
+    position: static;
+    display: flex !important;
+    flex-direction: row;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .toast {
+    margin: 0 6px;
+  }
   }
 
   .letter-tile {
