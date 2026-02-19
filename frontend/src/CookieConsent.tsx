@@ -2,8 +2,15 @@ import React, { useEffect, useState } from "react";
 
 const AD_CLIENT = (import.meta as any).env.VITE_ADSENSE_CLIENT || "";
 const API_URL = (import.meta as any).env.VITE_API_URL || "http://localhost:3001";
+const ENABLE_LOCAL_AD_EVENT = (import.meta as any).env.VITE_ENABLE_AD_EVENT_FOR_LOCAL === 'true';
 
 const postEvent = async (event: string, info?: any) => {
+  // Avoid noisy connection-refused errors during local development when
+  // the backend isn't running. Only send events to localhost if explicitly enabled.
+  if ((API_URL.includes('localhost') || API_URL.includes('127.0.0.1')) && !ENABLE_LOCAL_AD_EVENT) {
+    return;
+  }
+
   try {
     await fetch(`${API_URL}/ad-event`, {
       method: "POST",
@@ -18,8 +25,9 @@ const postEvent = async (event: string, info?: any) => {
 const injectAds = () => {
   try {
     if (!AD_CLIENT) {
+      // Reduce noise in console; this is expected in many dev setups.
       // eslint-disable-next-line no-console
-      console.warn("VITE_ADSENSE_CLIENT is not set; skipping AdSense injection.");
+      console.debug("VITE_ADSENSE_CLIENT not set; skipping AdSense injection.");
       postEvent("skip_inject_no_client");
       return;
     }
