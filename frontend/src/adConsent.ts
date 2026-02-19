@@ -11,7 +11,30 @@ const getCookie = (name: string) => {
 
 const parseMaybeJson = (value: string | null) => {
   if (!value) return null;
-  try { return JSON.parse(value); } catch (e) { return null; }
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    // CookieYes may write a compact flat format like:
+    // "consentid:...,consent:yes,necessary:yes,advertisement:yes"
+    try {
+      if (value.indexOf(':') !== -1) {
+        const parts = value.split(',').map(p => p.trim()).filter(Boolean);
+        const obj: Record<string, any> = {};
+        for (const part of parts) {
+          const [k, ...rest] = part.split(':');
+          if (!k) continue;
+          const raw = rest.join(':').trim();
+          if (/^yes$/i.test(raw)) obj[k] = true;
+          else if (/^no$/i.test(raw)) obj[k] = false;
+          else obj[k] = raw;
+        }
+        return obj;
+      }
+    } catch (e2) {
+      // fall through to null
+    }
+    return null;
+  }
 };
 
 const evaluateAdConsentFromCookieYes = (consentObj: any): boolean | null => {
