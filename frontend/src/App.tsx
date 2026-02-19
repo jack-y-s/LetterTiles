@@ -52,7 +52,7 @@ type ChatMessage = {
 type JoinMode = "random" | "create" | "joinById";
 
 
-const socketUrl = "http://localhost:3001";
+const socketUrl = "https://lettertiles-backend.onrender.com";
 
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
