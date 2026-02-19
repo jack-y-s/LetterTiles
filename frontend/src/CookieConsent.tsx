@@ -1,9 +1,28 @@
 import React, { useEffect, useState } from "react";
 
-const AD_CLIENT = (import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-TESTADCLIENT";
+const AD_CLIENT = (import.meta as any).env.VITE_ADSENSE_CLIENT || "";
+const API_URL = (import.meta as any).env.VITE_API_URL || "http://localhost:3001";
+
+const postEvent = async (event: string, info?: any) => {
+  try {
+    await fetch(`${API_URL}/ad-event`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event, client: AD_CLIENT, info })
+    });
+  } catch (e) {
+    // ignore network/logging failures
+  }
+};
 
 const injectAds = () => {
   try {
+    if (!AD_CLIENT) {
+      // eslint-disable-next-line no-console
+      console.warn("VITE_ADSENSE_CLIENT is not set; skipping AdSense injection.");
+      postEvent("skip_inject_no_client");
+      return;
+    }
     if ((window as any).__ads_injected) return;
     // Add the AdSense loader script
     const s = document.createElement("script");
@@ -15,14 +34,19 @@ const injectAds = () => {
         // Initialize any inline ad placeholders
         (window as any).adsbygoogle = (window as any).adsbygoogle || [];
         (window as any).adsbygoogle.push({});
+        postEvent("injected");
       } catch (e) {
-        // ignore
+        postEvent("inject_init_error", { message: String(e) });
       }
+    };
+    s.onerror = () => {
+      postEvent("inject_error");
     };
     document.head.appendChild(s);
     (window as any).__ads_injected = true;
   } catch (e) {
     // ignore
+    postEvent("inject_exception", { message: String(e) });
   }
 };
 

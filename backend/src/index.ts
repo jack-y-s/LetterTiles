@@ -137,6 +137,22 @@ const io = new Server(server, {
 });
 
 app.use(cors({ origin: allowedOrigins }));
+// Parse JSON bodies for lightweight event logging
+app.use(express.json());
+
+// Lightweight endpoint for ad-related frontend events (injection, init, errors)
+app.post("/ad-event", (req, res) => {
+  try {
+    const body = req.body || {};
+    const client = body.client || "unknown";
+    const event = body.event || "unknown";
+    const info = body.info || null;
+    console.log(`[ad-event] client=${client} event=${event} info=${JSON.stringify(info)}`);
+  } catch (e) {
+    console.warn("[ad-event] failed to parse body");
+  }
+  res.status(204).end();
+});
 
 const endSession = (lobby: Lobby) => {
   lobby.state.status = "ended";
