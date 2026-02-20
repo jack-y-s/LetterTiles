@@ -1524,8 +1524,8 @@ ul {
 .podium-riser.first-riser { height: 150px; background: linear-gradient(180deg,#ffd700 0%, #ffdc7a 100%); }
 .podium-riser.second-riser { height: 120px; background: linear-gradient(180deg,#c0c0c0 0%, #e6e6e6 100%); }
 .podium-riser.third-riser { height: 100px; background: linear-gradient(180deg,#cd7f32 0%, #b87333 100%); }
-.podium-avatar { width: 44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; margin-bottom:8px; position: relative; }
-.podium-avatar.large { width:64px; height:64px; font-size:22px; }
+.podium-avatar { width: 40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; margin-bottom:8px; position: relative; }
+.podium-avatar.large { width:60px; height:60px; font-size:22px; }
 .podium-name { font-weight:700; font-size:13px; margin-bottom:6px; color: #000; }
 .podium-score { font-weight:700; font-size:14px; color: #000; }
 
@@ -1543,8 +1543,8 @@ ul {
   .podium-riser.second-riser { height: 100px; }
   .podium-riser.third-riser { height: 80px; }
   .podium-riser.third-riser.empty { height: 100px; }
-  .podium-avatar { width:40px; height:40px; }
-  .podium-avatar.large { width:52px; height:52px; }
+  .podium-avatar { width:35px; height:35px; }
+  .podium-avatar.large { width:45px; height:45px; }
 }
 
 .winner-message {
