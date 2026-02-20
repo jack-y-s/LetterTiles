@@ -815,6 +815,12 @@ const App = () => {
             <div className="lobby-countdown" aria-live="polite">
               <div className="countdown-ring" role="img" aria-label={`Starting in ${lobbyCountdown}`}>
                   <svg viewBox="0 0 44 44" width="44" height="44" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="logoGradient" x1="0%" x2="100%" y1="0%" y2="100%">
+                        <stop offset="0%" stopColor="#ef476f" />
+                        <stop offset="100%" stopColor="#ffd166" />
+                      </linearGradient>
+                    </defs>
                     <circle className="ring-bg" cx="22" cy="22" r="18" fill="none" strokeWidth="4" />
                     <circle
                       className="ring-fg"
@@ -823,6 +829,7 @@ const App = () => {
                       r="18"
                       fill="none"
                       strokeWidth="4"
+                      stroke="url(#logoGradient)"
                       style={{
                         strokeDasharray: 2 * Math.PI * 18,
                           strokeDashoffset: (() => {

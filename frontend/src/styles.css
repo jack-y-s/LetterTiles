@@ -455,7 +455,7 @@ html,
   stroke: rgba(31,28,26,0.08);
 }
 .countdown-ring .ring-fg {
-  stroke: #f4a61c;
+  /* gradient applied via inline SVG stroke (logo gradient) - no CSS stroke override */
   stroke-linecap: round;
   transform-origin: 50% 50%;
   transform: rotate(-90deg); /* start at top */
@@ -474,6 +474,21 @@ html,
   0% { transform: scale(1); }
   40% { transform: scale(1.35); }
   100% { transform: scale(1); }
+}
+
+/* Make mobile countdown ring follow desktop sizing/animation and be slightly larger */
+@media (max-width: 600px) {
+  .countdown-ring {
+    width: 56px;
+    height: 56px;
+  }
+  .countdown-ring svg {
+    width: 56px;
+    height: 56px;
+  }
+  .countdown-ring .countdown-number {
+    font-size: 18px;
+  }
 }
 
 .star-burst {
