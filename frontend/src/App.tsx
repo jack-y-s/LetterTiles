@@ -125,7 +125,9 @@ const App = () => {
   const [lobbyCountdown, setLobbyCountdown] = useState<number | null>(null);
   // For enhanced countdown animation: remember starting value and pulse per tick
   const startLobbyCountdownRef = useRef<number | null>(null);
+  const lobbyCountdownRef = useRef<number | null>(null);
   const [tickPulse, setTickPulse] = useState(false);
+  const prevCardsRef = useRef<WordCard[] | null>(null);
   const [displayOrder, setDisplayOrder] = useState<number[]>([]);
   const [shufflePulse, setShufflePulse] = useState(false);
   const shuffleTimerRef = useRef<number | null>(null);
@@ -138,6 +140,17 @@ const App = () => {
   const [showHiddenPanel, setShowHiddenPanel] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [confettiEnabled, setConfettiEnabled] = useState(false);
+  const [muted, setMuted] = useState<boolean>(() => (localStorage.getItem('muted') === 'true'));
+
+  // Unlock audio on first user gesture (some browsers require a user gesture)
+  useEffect(() => {
+    const handler = () => {
+      import("./soundManager").then((m) => m.unlockAudio()).catch(() => {});
+      window.removeEventListener("pointerdown", handler);
+    };
+    window.addEventListener("pointerdown", handler, { once: true });
+    return () => window.removeEventListener("pointerdown", handler);
+  }, []);
   const lastLettersKeyRef = useRef("");
   const [joinMode, setJoinMode] = useState<JoinMode>("random");
   const [lobbyIdInput, setLobbyIdInput] = useState("");
@@ -248,6 +261,8 @@ const App = () => {
       }
       setConfettiEnabled(true);
       t = window.setTimeout(() => setConfettiEnabled(false), 3600);
+      // play end-game sound
+      import("./soundManager").then((m) => m.playEndGame()).catch(() => {});
     }
     return () => {
       if (t) window.clearTimeout(t);
@@ -270,6 +285,24 @@ const App = () => {
     // Initialize ad consent manager (listens for CookieYes / TCF signals)
     try { initAdConsent(); } catch (e) {}
 
+    // Ensure audio unlocked on first user gesture and apply persisted mute
+    const handler = () => {
+      import("./soundManager").then((m) => {
+        m.unlockAudio();
+        m.setMuted(localStorage.getItem('muted') === 'true');
+        // register default sound files defined in the app
+        import("./soundConfig").then((cfg) => {
+          try { m.setSoundFiles(cfg.default || cfg); } catch (_) {}
+        }).catch(() => {});
+      }).catch(() => {});
+      window.removeEventListener('pointerdown', handler);
+    };
+    window.addEventListener('pointerdown', handler);
+    // Also register default sound files immediately (no need to wait for gesture)
+    import("./soundManager").then((m) => {
+      import("./soundConfig").then((cfg) => { try { m.setSoundFiles(cfg.default || cfg); } catch (_) {} });
+    }).catch(() => {});
+
     const socketInstance = io(socketUrl, {
       // Allow polling fallback (don't force websocket) so initial handshake
       // can succeed in environments where WebSocket upgrade is blocked.
@@ -284,6 +317,17 @@ const App = () => {
 
     socketInstance.on("state", (state: GameState) => {
       setGame(state);
+      try {
+        const prev = prevCardsRef.current;
+        if (prev && Array.isArray(prev) && Array.isArray(state.cards)) {
+          for (const card of state.cards) {
+            const was = prev.find((c) => c.id === card.id);
+            if (card.revealed && (!was || !was.revealed) && card.length === 6) {
+              import("./soundManager").then((m) => m.playFoundSix()).catch(() => {});
+            }
+          }
+        }
+      } catch (_) {}
       // Cache the last non-empty cards (for active/ended)
       if ((state.status === "active" || state.status === "ended") && state.cards && state.cards.length > 0) {
         lastNonEmptyCardsRef.current = state.cards;
@@ -294,6 +338,8 @@ const App = () => {
           setJoined(false);
         }
       }
+      // store previous cards snapshot for next state diff
+      prevCardsRef.current = state.cards;
     });
 
     socketInstance.on("tick", (timeLeft: number) => {
@@ -310,6 +356,12 @@ const App = () => {
 
     socketInstance.on("chatMessage", (message: ChatMessage) => {
       setChatMessages((prev) => [...prev, message]);
+      try {
+        // Play a small notification for incoming chat (ignore if from self)
+        if (message.playerId !== socketInstance.id) {
+          import("./soundManager").then((m) => m.playNewChat()).catch(() => {});
+        }
+      } catch (_) {}
     });
 
     socketInstance.on("chatHistory", (messages: ChatMessage[]) => {
@@ -317,7 +369,20 @@ const App = () => {
     });
 
     socketInstance.on("lobbyCountdown", (seconds: number | null) => {
+      // Play tick each second; when reaching 0 play the countdownStart (go) sound
       setLobbyCountdown(seconds);
+      try {
+        import("./soundManager").then((m) => {
+          if (typeof seconds === 'number') {
+            if (seconds === 0) {
+              m.playCountdownStart();
+            } else {
+              m.playCountdownTick();
+            }
+          }
+        }).catch(() => {});
+      } catch (_) {}
+      lobbyCountdownRef.current = seconds;
     });
 
     // keep start value in sync when countdown begins
@@ -610,6 +675,8 @@ const App = () => {
       setTypedWord((prev) => (prev + letter).toUpperCase());
       pendingIndicesRef.current.delete(index);
       if (inputRef.current) inputRef.current.focus();
+      // typing sound
+      import("./soundManager").then((m) => m.playType()).catch(() => {});
     });
   };
 
@@ -676,8 +743,10 @@ const App = () => {
         // Show result toast (valid/invalid)
         if (response?.ok && response.word) {
           pushSuccess(response.word);
+          import("./soundManager").then((m) => m.playValid()).catch(() => {});
         } else if (response?.error) {
           pushToast(response.error, "error");
+          import("./soundManager").then((m) => m.playInvalid()).catch(() => {});
         }
         // Show points toast (plus/minus) side by side
         if (typeof response?.points === "number" && response.points !== 0) {
@@ -793,6 +862,8 @@ const App = () => {
     shuffleTimerRef.current = window.setTimeout(() => {
       setShufflePulse(false);
     }, 220);
+    // play shuffle sound
+    import("./soundManager").then((m) => m.playShuffle()).catch(() => {});
   }, [game.letters, game.status, joined]);
 
   useEffect(() => {
@@ -946,6 +1017,29 @@ const App = () => {
               <div className="card panel-box">
                 <div className="lobby-id-line">
                   <h2 className="section-title">Lobby</h2>
+                  <button
+                    type="button"
+                    className={`sound-toggle ${muted ? 'muted' : ''}`}
+                    onClick={() => {
+                      const next = !muted;
+                      setMuted(next);
+                      localStorage.setItem('muted', next ? 'true' : 'false');
+                      import("./soundManager").then((m) => m.setMuted(next)).catch(() => {});
+                    }}
+                    aria-label={muted ? 'Unmute sounds' : 'Mute sounds'}
+                  >
+                    {muted ? (
+                      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <path d="M18 9v6h-2V9h2zm-4-6v18l-6-6H4V9h4l6-6z" fill="#1f1c1a" />
+                        <path d="M20 4L4 20" stroke="#1f1c1a" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <path d="M3 10v4h4l5 5V5L7 10H3z" fill="#1f1c1a" />
+                        <path d="M16.5 12c0-1.77-.77-3.37-2-4.47v8.94c1.23-1.1 2-2.7 2-4.47z" fill="#1f1c1a" />
+                      </svg>
+                    )}
+                  </button>
                   {game.lobbyId && (
                     <button
                       type="button"
