@@ -822,27 +822,26 @@ const App = () => {
                       </linearGradient>
                     </defs>
                     <circle className="ring-bg" cx="22" cy="22" r="18" fill="none" strokeWidth="4" />
-                    <circle
-                      className="ring-fg"
-                      cx="22"
-                      cy="22"
-                      r="18"
-                      fill="none"
-                      strokeWidth="4"
-                      stroke="url(#logoGradient)"
-                      style={{
-                        strokeDasharray: 2 * Math.PI * 18,
-                          strokeDashoffset: (() => {
-                            const start = startLobbyCountdownRef.current ?? lobbyCountdown;
-                            const frac = start > 0 ? Math.max(0, Math.min(1, lobbyCountdown / start)) : 0;
-                            const circ = 2 * Math.PI * 18;
-                            // Use a negative offset so the stroke "empties" in the
-                            // opposite direction (anticlockwise) starting from the top.
-                            return String(-circ * (1 - frac));
-                          })(),
-                        transition: "stroke-dashoffset 0.28s linear"
-                      }}
-                    />
+                    {(() => {
+                      const circ = 2 * Math.PI * 18;
+                      const start = startLobbyCountdownRef.current ?? lobbyCountdown ?? 1;
+                      return (
+                        <circle
+                          className={`ring-fg ${lobbyCountdown !== null ? "counting" : ""}`}
+                          cx="22"
+                          cy="22"
+                          r="18"
+                          fill="none"
+                          strokeWidth="4"
+                          stroke="url(#logoGradient)"
+                          style={{
+                            strokeDasharray: circ,
+                            ["--circ" as any]: `${circ}px`,
+                            ["--countdown-duration" as any]: `${start}s`
+                          }}
+                        />
+                      );
+                    })()}
                   </svg>
                   <span className={`countdown-number ${tickPulse ? "tick" : ""}`}>{lobbyCountdown}</span>
                 </div>
@@ -1303,21 +1302,56 @@ const App = () => {
               <p className="winner-message">Congratulations! Great round.</p>
             )}
             <p className="muted">Score: {game.winner.score}</p>
-            {/* Final top-3 ranking with medals */}
+            {/* Final top-3 podium */}
             {sortedPlayers && sortedPlayers.length > 0 && (
-              <div style={{ marginTop: 12, textAlign: "left", width: "100%" }}>
+              <div style={{ marginTop: 12, textAlign: "center", width: "100%" }}>
                 <h3 style={{ margin: "6px 0" }}>Final Ranking</h3>
-                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
-                  {sortedPlayers.slice(0, 3).map((p, idx) => (
-                    <li key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 20 }}>{["🥇", "🥈", "🥉"][idx]}</span>
-                        <span style={{ fontWeight: 700 }}>{p.name.toUpperCase()}</span>
-                      </span>
-                      <span style={{ fontWeight: 700 }}>{p.score}</span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="podium">
+                  {/* 3rd place - left */}
+                  <div className="podium-slot third">
+                    {sortedPlayers[2] ? (
+                      <>
+                        <div className="podium-riser third-riser">
+                          <div className="podium-avatar" style={{ background: sortedPlayers[2].avatarColor }}>{sortedPlayers[2].name.slice(0,1).toUpperCase()}</div>
+                          <div className="podium-name">{sortedPlayers[2].name.toUpperCase()}</div>
+                          <div className="podium-score">{sortedPlayers[2].score}</div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="podium-riser third-riser empty">—</div>
+                    )}
+                  </div>
+
+                  {/* 1st place - center */}
+                  <div className="podium-slot first">
+                    {sortedPlayers[0] ? (
+                      <>
+                        <div className="podium-riser first-riser">
+                          <div className="podium-avatar large" style={{ background: sortedPlayers[0].avatarColor }}>{sortedPlayers[0].name.slice(0,1).toUpperCase()}</div>
+                          <div className="podium-name">{sortedPlayers[0].name.toUpperCase()}</div>
+                          <div className="podium-score">{sortedPlayers[0].score}</div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="podium-riser first-riser empty">—</div>
+                    )}
+                  </div>
+
+                  {/* 2nd place - right */}
+                  <div className="podium-slot second">
+                    {sortedPlayers[1] ? (
+                      <>
+                        <div className="podium-riser second-riser">
+                          <div className="podium-avatar" style={{ background: sortedPlayers[1].avatarColor }}>{sortedPlayers[1].name.slice(0,1).toUpperCase()}</div>
+                          <div className="podium-name">{sortedPlayers[1].name.toUpperCase()}</div>
+                          <div className="podium-score">{sortedPlayers[1].score}</div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="podium-riser second-riser empty">—</div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
             {/* Show player's top submitted words (received in per-client state as playerTopWords) */}

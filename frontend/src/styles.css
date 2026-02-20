@@ -460,6 +460,23 @@ html,
   transform-origin: 50% 50%;
   transform: rotate(-90deg); /* start at top */
 }
+
+/* Ensure a deterministic animation direction for the ring using CSS keyframes.
+   The circle receives CSS vars `--circ` (circumference in px) and
+   `--countdown-duration` (seconds) via inline style from React. When the
+   `.counting` class is present the stroke will animate from full -> empty
+   in a consistent direction on all viewports. */
+.countdown-ring .ring-fg {
+  stroke-dashoffset: 0;
+}
+.countdown-ring .ring-fg.counting {
+  animation: countdown-fill var(--countdown-duration, 3s) linear forwards;
+}
+
+@keyframes countdown-fill {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: calc(-1 * var(--circ)); }
+}
 .countdown-ring .countdown-number {
   position: relative;
   z-index: 2;
@@ -1476,6 +1493,58 @@ ul {
   gap: 12px;
   align-items: center;
   justify-content: center;
+}
+
+/* Podium styles for winner overlay */
+.podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 12px;
+}
+.podium-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 120px;
+}
+.podium-riser {
+  width: 100%;
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 8px 8px 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  color: #fff;
+}
+.podium-riser.empty { background: #eee; color: #666; }
+.podium-riser.first-riser { height: 150px; background: linear-gradient(180deg,#ffd700 0%, #ffdc7a 100%); }
+.podium-riser.second-riser { height: 120px; background: linear-gradient(180deg,#c0c0c0 0%, #e6e6e6 100%); }
+.podium-riser.third-riser { height: 100px; background: linear-gradient(180deg,#cd7f32 0%, #b87333 100%); }
+.podium-avatar { width: 44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; margin-bottom:8px; position: relative; }
+.podium-avatar.large { width:64px; height:64px; font-size:22px; }
+.podium-name { font-weight:700; font-size:13px; margin-bottom:6px; color: #000; }
+.podium-score { font-weight:700; font-size:14px; color: #000; }
+
+
+/* Medal overlays for podium avatars */
+/* Medal icons removed per request; leaving podium colors intact */
+
+/* When the third riser is empty, keep it visually level with the other risers */
+.podium-riser.third-riser.empty { height: 120px; background: #f4f4f4; color: #666; display: flex; align-items: center; justify-content: center; }
+
+@media (max-width:600px) {
+  .podium { gap: 10px; }
+  .podium-slot { width: 90px; }
+  .podium-riser.first-riser { height: 120px; }
+  .podium-riser.second-riser { height: 100px; }
+  .podium-riser.third-riser { height: 80px; }
+  .podium-riser.third-riser.empty { height: 100px; }
+  .podium-avatar { width:40px; height:40px; }
+  .podium-avatar.large { width:52px; height:52px; }
 }
 
 .winner-message {
