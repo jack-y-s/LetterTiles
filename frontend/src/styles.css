@@ -194,6 +194,31 @@ button, .letter-tile, .ready-toggle, .lobby-id-badge-top, .lobby-ready-toggle {
   box-sizing: border-box;
 }
 
+/* Prevent horizontal overflow on small/mobile viewports and allow grid/flex
+   children to shrink below their content width. This avoids panels pushing
+   the page wider than the viewport. */
+html, body, #root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Allow grid/flex children to shrink properly instead of forcing overflow */
+.hero-row,
+.side-panels,
+.center-stack,
+.letter-center,
+.letter-center-content,
+.letter-row,
+.word-builder,
+.word-bank {
+  min-width: 0;
+}
+
+img, svg {
+  max-width: 100%;
+  height: auto;
+}
+
 
 body {
   margin: 0;
@@ -212,6 +237,7 @@ html,
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: var(--section-gap);
   align-items: start;
+  overflow-x: hidden;
 }
 
 /* Keep desktop fixed-height behavior but allow scrolling on small and tablet screens */
@@ -245,12 +271,6 @@ html,
   align-items: start;
 }
 
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 13px;
-  margin: 0;
-}
 
 .brand-row {
   display: flex;
@@ -753,6 +773,7 @@ html,
 .leaderboard-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-weight: 700;
   font-size: 12px;
   text-transform: uppercase;
@@ -1309,12 +1330,15 @@ ul {
   width: min(520px, 100%);
 }
 
-.word-input {
-  width: 520px;
-  max-width: 95vw;
-  height: 80px;
-  min-height: calc(72px + 16px);
-  padding: 8px 16px;
+ .word-input {
+    width: 520px;
+    max-width: 95vw;
+    height: 80px;
+    min-height: calc(72px + 16px);
+    /* Use horizontal padding that lets six 72px tiles + five 8px gaps
+      exactly fill the inner width: inner = 6*72 + 5*8 = 472px =>
+      padding-left+right = 520 - 472 = 48px => 24px each */
+    padding: 8px 24px;
   border-radius: 14px;
   border: 1px solid #d9c6ad;
   font-size: 18px;
@@ -1361,6 +1385,20 @@ ul {
   }
   .word-input {
     gap: 6px;
+  }
+
+  /* Mobile: allow the input to fit its container and scroll horizontally
+     to avoid overflowing the center column on narrow screens. */
+  .word-input {
+     width: 100%;
+     max-width: 520px;
+     box-sizing: border-box;
+     overflow-x: auto;
+     -webkit-overflow-scrolling: touch;
+     /* Left-align tiles when typing, but keep the placeholder centered
+       when empty. This avoids new letters appearing from the middle. */
+     justify-content: flex-start;
+     padding-inline: clamp(8px, calc((100% - 318px) / 2), 24px);
   }
 }
 
