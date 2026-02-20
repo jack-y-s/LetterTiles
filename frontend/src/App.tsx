@@ -103,6 +103,12 @@ const App = () => {
     prevChatLengthRef.current = chatMessages.length;
   }, [chatMessages]);
   const [chatInput, setChatInput] = useState("");
+  // Chat spam throttling: track recent send timestamps (ms) and temporary block
+  const chatTimestampsRef = useRef<number[]>([]);
+  const [chatBlockedUntil, setChatBlockedUntil] = useState<number | null>(null);
+  const chatBlockTimerRef = useRef<number | null>(null);
+
+  // Profanity filtering is enforced server-side (leo-profanity). Client-side hardcoded list removed.
   const [lobbyCountdown, setLobbyCountdown] = useState<number | null>(null);
   // For enhanced countdown animation: remember starting value and pulse per tick
   const startLobbyCountdownRef = useRef<number | null>(null);
@@ -617,10 +623,44 @@ const App = () => {
   };
 
   const handleSendChat = () => {
-    if (!socket || !joined || !chatInput.trim()) {
+    const now = Date.now();
+    const safe = chatInput.trim();
+    if (!socket || !joined || !safe) {
       return;
     }
-    socket.emit("chatMessage", { message: chatInput.trim() });
+    // If currently blocked, inform user
+    if (chatBlockedUntil && now < chatBlockedUntil) {
+      const secs = Math.ceil((chatBlockedUntil - now) / 1000);
+      pushToast(`You're sending messages too fast — try again in ${secs}s`, "error");
+      // Still send this single message to the server so the user can see
+      // any server-side error (profanity, length, etc.). The server will
+      // enforce rate limits so this won't bypass protection.
+      try {
+        socket.emit("chatMessage", { message: safe });
+      } catch (_) {}
+      return;
+    }
+    // Record this send and prune old timestamps (window: 4s)
+    const windowMs = 4000;
+    const maxRapid = 4; // 4 very fast consecutive submissions
+    chatTimestampsRef.current.push(now);
+    chatTimestampsRef.current = chatTimestampsRef.current.filter((t) => now - t <= windowMs);
+    if (chatTimestampsRef.current.length >= maxRapid) {
+      // Block this player for a short cooldown
+      const blockMs = 5000;
+      setChatBlockedUntil(now + blockMs);
+      if (chatBlockTimerRef.current) window.clearTimeout(chatBlockTimerRef.current);
+      chatBlockTimerRef.current = window.setTimeout(() => setChatBlockedUntil(null), blockMs);
+      pushToast("You're sending messages too quickly. Chat disabled briefly.", "error");
+      // Send this one message to the server so the user sees server-side errors.
+      try {
+        socket.emit("chatMessage", { message: safe });
+      } catch (_) {}
+      return;
+    }
+
+    // Server will enforce profanity filtering; send trimmed message as-is
+    socket.emit("chatMessage", { message: safe });
     setChatInput("");
   };
 
@@ -702,6 +742,15 @@ const App = () => {
     return () => {
       if (shuffleTimerRef.current) {
         window.clearTimeout(shuffleTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Clean up chat block timer on unmount
+  useEffect(() => {
+    return () => {
+      if (chatBlockTimerRef.current) {
+        window.clearTimeout(chatBlockTimerRef.current);
       }
     };
   }, []);
@@ -828,7 +877,7 @@ const App = () => {
                     </button>
                   )}
                 </div>
-                <p className="muted">Display Name: {accountName.toUpperCase()}</p>
+                <p className="muted">Display Name: {(me?.name ?? accountName).toUpperCase()}</p>
                 {!joined && (
                   <>
                     <div className="join-mode-selector">
@@ -980,11 +1029,12 @@ const App = () => {
                           handleSendChat();
                         }
                       }}
-                      placeholder="Type a message..."
+                      placeholder={chatBlockedUntil && Date.now() < chatBlockedUntil ? `Chat disabled for ${Math.ceil((chatBlockedUntil - Date.now())/1000)}s` : "Type a message..."}
                       maxLength={200}
+                      disabled={!!chatBlockedUntil && Date.now() < chatBlockedUntil}
                     />
-                    <button type="button" onClick={handleSendChat}>
-                      Send
+                    <button type="button" onClick={handleSendChat} disabled={!!chatBlockedUntil && Date.now() < chatBlockedUntil}>
+                      {chatBlockedUntil && Date.now() < chatBlockedUntil ? "Disabled" : "Send"}
                     </button>
                   </div>
                 </>

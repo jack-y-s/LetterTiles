@@ -3,7 +3,57 @@ import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from 'url';
+
+// __dirname replacement for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import wordListPath from "word-list";
+import { RateLimiterMemory } from 'rate-limiter-flexible';
+
+// Local profanity mask list (loaded from bad-words.json if available).
+// Primary bad-words list is stored in `backend/bad-words.json`.
+// Keep an empty fallback in code so the JSON file is authoritative and
+// can be updated without modifying source.
+let LOCAL_BAD_WORDS: string[] = [];
+let LOCAL_BAD_PATTERN = /$^/; // matches nothing until we load the JSON
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const buildPattern = (words: string[]) => {
+  if (!words || words.length === 0) return /$^/;
+  return new RegExp(`\\b(${words.map(escapeRegex).join('|')})\\b`, 'gi');
+};
+const maskProfanity = (text: string) => text.replace(LOCAL_BAD_PATTERN, (m) => '*'.repeat(m.length));
+
+const loadBadWords = (silent = false) => {
+  const candidates = [
+    path.join(process.cwd(), 'backend', 'bad-words.json'),
+    path.resolve(__dirname, '..', 'bad-words.json')
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+          LOCAL_BAD_WORDS = parsed.slice();
+          LOCAL_BAD_PATTERN = buildPattern(LOCAL_BAD_WORDS);
+          if (!silent) console.log(`[server] loaded bad-words from ${p} (${LOCAL_BAD_WORDS.length} entries)`);
+          return;
+        }
+      }
+    } catch (e) {
+      if (!silent) console.warn('[server] failed to load bad-words from', p, e);
+    }
+  }
+  // Fallback: rebuild pattern from current array
+  LOCAL_BAD_PATTERN = buildPattern(LOCAL_BAD_WORDS);
+  if (!silent) console.log('[server] using embedded bad-words list');
+};
+
+// Attempt to load file at startup
+loadBadWords(true);
 
 type Player = {
   id: string;
@@ -115,6 +165,9 @@ const dictionary = rawWords
   .filter((word) => word.length >= MIN_WORD_LENGTH && word.length <= MAX_WORD_LENGTH);
 const dictionarySet = new Set(dictionary);
 
+// Chat rate limiter (per-socket id). Allows 4 messages per 4 seconds by default.
+const chatLimiter = new RateLimiterMemory({ points: 4, duration: 4 });
+
 const app = express();
 // Trust proxies (Cloudflare) so Express derives client IPs properly
 app.set("trust proxy", true);
@@ -154,6 +207,16 @@ app.post("/ad-event", (req, res) => {
     console.warn("[ad-event] failed to parse body");
   }
   res.status(204).end();
+});
+
+// Admin endpoint to reload bad-words.json at runtime (no auth in this simple patch).
+app.post('/admin/reload-bad-words', (_req, res) => {
+  try {
+    loadBadWords();
+    res.json({ ok: true, count: LOCAL_BAD_WORDS.length });
+  } catch (e) {
+    res.status(500).json({ ok: false });
+  }
 });
 
 const endSession = (lobby: Lobby) => {
@@ -630,9 +693,11 @@ const getPlayer = (lobby: Lobby, id: string) =>
 
 const addPlayer = (lobby: Lobby, id: string, name: string) => {
   const avatarColor = AVATAR_COLORS[lobby.state.players.length % AVATAR_COLORS.length];
+  // Sanitize player name to prevent profanity in UI
+  const safeName = maskProfanity(name || "Player");
   const player: Player = {
     id,
-    name,
+    name: safeName,
     score: 0,
     streakCount: 0,
     streakPoints: 0,
@@ -781,8 +846,17 @@ io.on("connection", (socket) => {
     const player = addPlayer(lobby, socket.id, safeName);
     lobby.state.lastAction = `${player.name} joined`;
     
-    // Send chat history to new player
-    socket.emit("chatHistory", lobby.chatMessages);
+    // Send sanitized chat history to new player (mask any legacy profanity)
+    try {
+      const sanitized = lobby.chatMessages.map((m) => ({
+        ...m,
+        message: maskProfanity(m.message),
+        playerName: maskProfanity(m.playerName)
+      }));
+      socket.emit("chatHistory", sanitized);
+    } catch (e) {
+      socket.emit("chatHistory", lobby.chatMessages);
+    }
     
     broadcastState(lobby);
     if (lobby.state.status === "lobby" && allPlayersReady(lobby)) {
@@ -920,7 +994,7 @@ io.on("connection", (socket) => {
   socket.on("returnToLobby", handleReturnToLobby);
   socket.on("leaveLobby", handleLeaveLobby);
 
-  socket.on("chatMessage", ({ message }: { message: string }) => {
+  socket.on("chatMessage", async ({ message }: { message: string }) => {
     const lobby = getLobbyForSocket(socket.id);
     if (!lobby) {
       return;
@@ -934,13 +1008,26 @@ io.on("connection", (socket) => {
     if (!trimmedMessage || trimmedMessage.length > 200) {
       return;
     }
-    
+
+    // server-side rate limiting per socket
+    try {
+      await chatLimiter.consume(socket.id);
+    } catch (rateErr) {
+      // Exceeded rate: inform client and ignore message
+      const blockMs = 5000;
+      socket.emit('chatBlocked', { until: Date.now() + blockMs, seconds: Math.ceil(blockMs / 1000) });
+      return;
+    }
+
+    // server-side profanity masking using local list
+    const cleaned = maskProfanity(trimmedMessage);
+    const cleanedPlayerName = maskProfanity(player.name);
     const chatMessage: ChatMessage = {
       id: `${Date.now()}-${socket.id}`,
       playerId: player.id,
-      playerName: player.name,
+      playerName: cleanedPlayerName,
       playerColor: player.avatarColor,
-      message: trimmedMessage,
+      message: cleaned,
       timestamp: Date.now()
     };
     
