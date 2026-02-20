@@ -73,6 +73,8 @@ const App = () => {
     const [pointsBadge, setPointsBadge] = useState<{ value: number, key: number } | null>(null);
     const pointsBadgeTimeout = useRef<number | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
+  // Delay showing the socket-down banner to avoid a brief flash on initial load
+  const [showSocketBanner, setShowSocketBanner] = useState(false);
   const [accountName, setAccountName] = useState("");
   const [accountNameInput, setAccountNameInput] = useState("");
   const [joined, setJoined] = useState(false);
@@ -327,6 +329,30 @@ const App = () => {
       socketInstance.disconnect();
     };
   }, []);
+
+  // Show the backend unreachable banner only after a short delay to avoid
+  // flashing the banner briefly on initial page load while socket connects.
+  useEffect(() => {
+    let timer: number | undefined;
+    const DELAY_MS = 2500;
+    if (!socket) {
+      setShowSocketBanner(false);
+      return;
+    }
+    // Hide immediately, then schedule showing if still disconnected
+    setShowSocketBanner(false);
+    timer = window.setTimeout(() => {
+      if (socket && !socket.connected) setShowSocketBanner(true);
+    }, DELAY_MS);
+
+    const handleConnect = () => setShowSocketBanner(false);
+    socket.on('connect', handleConnect);
+
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      socket.off('connect', handleConnect);
+    };
+  }, [socket]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 900px)");
@@ -692,35 +718,14 @@ const App = () => {
   return (
     <div className="page">
       {/* Backend connection banner - visible when socket exists but is disconnected */}
-      {socket && !socket.connected && (() => {
+      {socket && !socket.connected && showSocketBanner && (() => {
+        // Keep a passive check for a stored hide flag, but banner is now static text only.
         const hideUntilRaw = localStorage.getItem('hideSocketBannerUntil');
         const hideUntil = hideUntilRaw ? parseInt(hideUntilRaw, 10) : 0;
         if (Date.now() < hideUntil) return null;
         return (
-          <div style={{ background: '#ffefe6', color: '#422', padding: '8px 12px', textAlign: 'center', position: 'relative' }}>
-            <span style={{ marginRight: 12 }}>Backend unreachable — some features may be disabled.</span>
-            <button
-              onClick={() => {
-                setError(null);
-                try { (socket as any).connect(); } catch (e) { window.location.reload(); }
-              }}
-              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', marginRight: 8 }}
-            >
-              Retry
-            </button>
-            <button
-              onClick={() => {
-                // Hide the banner for 10 minutes
-                try { localStorage.setItem('hideSocketBannerUntil', String(Date.now() + 10 * 60 * 1000)); } catch (e) {}
-                // Force a re-render by updating a local state via existing setter
-                setError(null);
-              }}
-              aria-label="Dismiss"
-              title="Dismiss for 10 minutes"
-              style={{ position: 'absolute', right: 8, top: 6, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff' }}
-            >
-              Dismiss
-            </button>
+          <div style={{ background: '#ffefe6', color: '#422', padding: '8px 12px', textAlign: 'center' }}>
+            <span>Backend unreachable — some features may be disabled.</span>
           </div>
         );
       })()}
