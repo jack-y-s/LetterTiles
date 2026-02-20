@@ -574,6 +574,7 @@ html,
   place-items: center;
   background: #fdf2da;
   border: 2px solid #d7bfa2;
+  color: #ff4d6d;
   font-weight: 700;
   font-size: var(--tile-font);
   box-shadow: none;
@@ -1370,6 +1371,7 @@ ul {
   font-size: 28px;
   text-transform: uppercase;
   cursor: pointer;
+  color: #ff4d6d;
   box-sizing: border-box;
 }
 .typed-letter:active { transform: scale(0.96); }
@@ -1520,7 +1522,7 @@ ul {
 }
 
 .word-card.pinned .word-tile {
-  box-shadow: inset 0 0 0 2px #f4a61c;
+  box-shadow: inset 0 0 0 2px #ff4d6d;
 }
 
 .word-card.revealed {
