@@ -160,6 +160,68 @@ export const playFoundSix = () => {
   setTimeout(() => playTone(1240, 'sine', 0.12, 0.22), 140);
 };
 
+let _roundFinalTimer: number | null = null;
+let _roundFinalCount = 0;
+export const playRoundFinalTick = async () => {
+  if (muted) return;
+  // If an existing fallback timer is running, don't restart
+  if (_roundFinalTimer) return;
+
+  // Prefer decoded AudioBuffer playback for lowest latency
+  try {
+    const buf = buffers['roundFinalTick'];
+    if (buf) {
+      const audio = ensureCtx();
+      if (audio.state === 'suspended') {
+        try { await audio.resume(); } catch (_) {}
+      }
+      const src = audio.createBufferSource();
+      src.buffer = buf;
+      const gain = audio.createGain();
+      gain.gain.value = 1;
+      src.connect(gain).connect(audio.destination);
+      src.start(audio.currentTime + 0);
+      return;
+    }
+  } catch (_) {}
+
+  // Try HTMLAudio playback if a file URL exists. If playback is blocked or fails,
+  // fall back to synth per-second ticks.
+  try {
+    const pre = preloaded['roundFinalTick'];
+    if (pre instanceof HTMLAudioElement) {
+      try {
+        const clone = pre.cloneNode(true) as HTMLAudioElement;
+        // Attempt to play; if promise rejects, fall through to synth fallback
+        const p = clone.play();
+        if (p && typeof p.then === 'function') {
+          await p.catch(() => { throw new Error('audio-play-failed'); });
+          return; // success
+        }
+        // If no promise, assume it started
+        return;
+      } catch (_) {
+        // fall through to fallback
+      }
+    }
+  } catch (_) {}
+
+  // Fallback: play per-second urgent ticks for up to 13 seconds.
+  try {
+    _roundFinalCount = 0;
+    _roundFinalTimer = window.setInterval(() => {
+      if (muted) return;
+      _roundFinalCount += 1;
+      playCountdownTick();
+      if (_roundFinalCount >= 13) {
+        if (_roundFinalTimer) window.clearInterval(_roundFinalTimer);
+        _roundFinalTimer = null;
+        _roundFinalCount = 0;
+      }
+    }, 1000) as unknown as number;
+  } catch (_) {}
+};
+
 export const unlockAudio = async () => {
   try {
     const a = ensureCtx();
@@ -199,6 +261,7 @@ const api = {
   playInvalid,
   playCountdownStart,
   playCountdownTick,
+  playRoundFinalTick,
   playBackspace,
   playEndGame,
   playNewChat,

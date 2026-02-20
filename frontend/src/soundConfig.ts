@@ -8,6 +8,7 @@ const soundFiles: Record<string, string> = {
   invalid: '/sounds/invalid.mp3',
   countdownStart: '/sounds/countdownStart.mp3',
   countdownTick: '/sounds/countdownTick.mp3',
+  roundFinalTick: '/sounds/roundFinalTick.mp3',
   endGame: '/sounds/endGame.mp3',
   newChat: '/sounds/newChat.mp3',
   foundSix: '/sounds/foundSix.mp3',

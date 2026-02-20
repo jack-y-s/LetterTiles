@@ -128,6 +128,8 @@ const App = () => {
   const lobbyCountdownRef = useRef<number | null>(null);
   const [tickPulse, setTickPulse] = useState(false);
   const prevCardsRef = useRef<WordCard[] | null>(null);
+  const prevTimeLeftRef = useRef<number | null>(null);
+  const roundFinalPlayedRef = useRef<boolean>(false);
   const [displayOrder, setDisplayOrder] = useState<number[]>([]);
   const [shufflePulse, setShufflePulse] = useState(false);
   const shuffleTimerRef = useRef<number | null>(null);
@@ -477,6 +479,31 @@ const App = () => {
     };
   }, [lobbyCountdown]);
 
+  // Play an urgent tick sound during the final 10 seconds of an active round.
+  useEffect(() => {
+    if (game.status !== 'active') {
+      prevTimeLeftRef.current = null;
+      return;
+    }
+    const prev = prevTimeLeftRef.current;
+    const cur = typeof game.timeLeft === 'number' ? game.timeLeft : null;
+    if (cur !== null && (prev === null || cur < (prev as number))) {
+      // Trigger once when entering the final 14 seconds window
+      if (cur <= 14 && cur >= 0 && !roundFinalPlayedRef.current) {
+        try {
+          const sm = (window as any).__soundManager;
+          if (sm && typeof sm.playRoundFinalTick === 'function') {
+            sm.playRoundFinalTick();
+          } else {
+            import("./soundManager").then((m) => m.playRoundFinalTick()).catch(() => {});
+          }
+        } catch (_) {}
+        roundFinalPlayedRef.current = true;
+      }
+    }
+    prevTimeLeftRef.current = cur;
+  }, [game.timeLeft, game.status]);
+
   useEffect(() => {
     const nextKey = game.letters.join("");
     if (nextKey === lastLettersKeyRef.current) {
@@ -496,6 +523,8 @@ const App = () => {
     if (game.status === "active") {
       setShowWinnerOverlay(false);
       setWinnerDismissed(false);
+      // New round started - allow the final-round sound to play again
+      roundFinalPlayedRef.current = false;
     }
     if (game.status === "lobby") {
       setShowWinnerOverlay(false);
