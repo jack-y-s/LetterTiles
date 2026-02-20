@@ -1744,3 +1744,24 @@ ul {
     min-width: 140px;
   }
 }
+
+/* Ad anchor: reserve space to prevent CLS (desktop and mobile defaults) */
+#ad-anchor {
+  width: 100%;
+  min-height: 120px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#ad-anchor ins.adsbygoogle {
+  width: 100%;
+  min-height: 120px;
+  display: block;
+}
+
+@media (max-width: 540px) {
+  /* Mobile: smaller but still reserve space to avoid layout shift */
+  #ad-anchor { min-height: 90px; }
+  #ad-anchor ins.adsbygoogle { min-height: 90px; }
+}

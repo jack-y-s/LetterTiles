@@ -170,7 +170,11 @@ const injectAds = () => {
       // Minimal styles so it doesn't collapse; page can replace/position this element as needed
       ins.style.display = 'block';
       ins.style.minHeight = '1px';
-      if (anchor) anchor.appendChild(ins); else document.body.appendChild(ins);
+      if (anchor) {
+        // reserve a sensible min-height to avoid CLS when placed into the dedicated anchor
+        try { ins.style.minHeight = '120px'; } catch (e) {}
+        anchor.appendChild(ins);
+      } else document.body.appendChild(ins);
     }
     const s = document.createElement('script');
     s.async = true;
