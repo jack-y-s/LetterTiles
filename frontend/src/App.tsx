@@ -54,9 +54,12 @@ type ChatMessage = {
 type JoinMode = "random" | "create" | "joinById";
 
 
-// Use the custom API hostname for production. Prefer Vite `VITE_API_URL`,
-// fall back to older `REACT_APP_API_URL` if present, then localhost for dev.
-const API_BASE = (import.meta as any).env.VITE_API_URL || "https://api.letter-tiles.com";
+// Resolve API base URL:
+// 1) Prefer Vite `VITE_API_URL` when provided at build time
+// 2) If running in a browser on `localhost`, default to the local backend
+// 3) Otherwise fall back to the public production API
+const envApi = (import.meta as any).env.VITE_API_URL;
+const API_BASE = envApi || (typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://api.letter-tiles.com');
 const socketUrl = API_BASE;
 
 const formatTime = (seconds: number) => {
@@ -689,20 +692,38 @@ const App = () => {
   return (
     <div className="page">
       {/* Backend connection banner - visible when socket exists but is disconnected */}
-      {socket && !socket.connected && (
-        <div style={{ background: '#ffefe6', color: '#422', padding: '8px 12px', textAlign: 'center' }}>
-          <span style={{ marginRight: 12 }}>Backend unreachable — some features may be disabled.</span>
-          <button
-            onClick={() => {
-              setError(null);
-              try { (socket as any).connect(); } catch (e) { window.location.reload(); }
-            }}
-            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff' }}
-          >
-            Retry
-          </button>
-        </div>
-      )}
+      {socket && !socket.connected && (() => {
+        const hideUntilRaw = localStorage.getItem('hideSocketBannerUntil');
+        const hideUntil = hideUntilRaw ? parseInt(hideUntilRaw, 10) : 0;
+        if (Date.now() < hideUntil) return null;
+        return (
+          <div style={{ background: '#ffefe6', color: '#422', padding: '8px 12px', textAlign: 'center', position: 'relative' }}>
+            <span style={{ marginRight: 12 }}>Backend unreachable — some features may be disabled.</span>
+            <button
+              onClick={() => {
+                setError(null);
+                try { (socket as any).connect(); } catch (e) { window.location.reload(); }
+              }}
+              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', marginRight: 8 }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => {
+                // Hide the banner for 10 minutes
+                try { localStorage.setItem('hideSocketBannerUntil', String(Date.now() + 10 * 60 * 1000)); } catch (e) {}
+                // Force a re-render by updating a local state via existing setter
+                setError(null);
+              }}
+              aria-label="Dismiss"
+              title="Dismiss for 10 minutes"
+              style={{ position: 'absolute', right: 8, top: 6, padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff' }}
+            >
+              Dismiss
+            </button>
+          </div>
+        );
+      })()}
       {/* Toast notifications under Time Left */}
       <div className="toast-center-row">
         <div className="toast-lane toast-result">

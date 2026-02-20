@@ -85,6 +85,58 @@ const resolveClient = (): string | null => {
   }
 };
 
+// Backend availability state: if the backend becomes unreachable, degrade to console logging
+let backendReachable = true;
+let backendProbeScheduled = false;
+
+const scheduleBackendProbe = () => {
+  if (backendProbeScheduled) return;
+  backendProbeScheduled = true;
+  const tryProbe = async () => {
+    try {
+      const res = await fetch('/ad-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ probe: true }),
+        keepalive: true,
+      });
+      if (res && res.ok) {
+        backendReachable = true;
+        backendProbeScheduled = false;
+        console.log('[adConsent] backend reachable again');
+      } else {
+        setTimeout(tryProbe, 60000);
+      }
+    } catch (e) {
+      setTimeout(tryProbe, 60000);
+    }
+  };
+  // start probe after a short delay
+  setTimeout(tryProbe, 60000);
+};
+
+const sendAdEvent = async (payload: any) => {
+  try {
+    if (!backendReachable) {
+      console.log('[adConsent][offline] event:', payload);
+      scheduleBackendProbe();
+      return;
+    }
+    const res = await fetch('/ad-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    });
+    if (!res.ok) throw new Error('non-OK status ' + res.status);
+  } catch (e) {
+    console.warn('[adConsent] /ad-event failed, switching to offline mode', e);
+    backendReachable = false;
+    console.log('[adConsent][offline] event (saved to console):', payload);
+    scheduleBackendProbe();
+  }
+};
+
 const injectAds = () => {
   try {
     if ((window as any).__ads_injected) {
@@ -96,12 +148,7 @@ const injectAds = () => {
     if (!client) {
       console.log('[adConsent] injectAds: no client found, aborting');
       try {
-        fetch('/ad-event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client: null, event: 'inject_aborted', info: { reason: 'no_client' } }),
-          keepalive: true
-        }).catch(() => {});
+        sendAdEvent({ client: null, event: 'inject_aborted', info: { reason: 'no_client' } });
       } catch (e) {}
       return;
     }
@@ -166,21 +213,11 @@ const injectAds = () => {
         waitForCreative(ins, 6000).then((hasCreative) => {
           try {
             if (hasCreative) {
-              fetch('/ad-event', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ client, event: 'inject_success', info: { insPresent: !!ins, href: location.href } }),
-                keepalive: true
-              }).catch(() => {});
+              sendAdEvent({ client, event: 'inject_success', info: { insPresent: !!ins, href: location.href } });
             } else {
               console.warn('[adConsent] injectAds: no creative detected — removing placeholder');
               try {
-                fetch('/ad-event', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ client, event: 'inject_no_creative', info: { insPresent: !!ins, href: location.href } }),
-                  keepalive: true
-                }).catch(() => {});
+                sendAdEvent({ client, event: 'inject_no_creative', info: { insPresent: !!ins, href: location.href } });
               } catch (e) {}
               if (ins && ins.parentNode) {
                 ins.parentNode.removeChild(ins);
@@ -190,27 +227,17 @@ const injectAds = () => {
             // ignore
           }
         }).catch(() => {});
-      } catch (e) {
+        } catch (e) {
         console.warn('[adConsent] injectAds: push failed', e);
         try {
-          fetch('/ad-event', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ client, event: 'inject_push_failed', info: { error: String(e) } }),
-            keepalive: true
-          }).catch(() => {});
+          sendAdEvent({ client, event: 'inject_push_failed', info: { error: String(e) } });
         } catch (e2) {}
       }
     };
     s.onerror = () => {
       console.warn('[adConsent] injectAds: script load error');
       try {
-        fetch('/ad-event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client, event: 'inject_script_error', info: null }),
-          keepalive: true
-        }).catch(() => {});
+        sendAdEvent({ client, event: 'inject_script_error', info: null });
       } catch (e) {}
     };
     document.head.appendChild(s);
