@@ -371,24 +371,25 @@ const App = () => {
     socketInstance.on("lobbyCountdown", (seconds: number | null) => {
       // Play tick each second; when reaching 0 play the countdownStart (go) sound
       setLobbyCountdown(seconds);
+      // Update the ref immediately to prevent duplicate sound when the
+      // backend may emit the same value multiple times in quick succession.
+      const prev = lobbyCountdownRef.current;
+      lobbyCountdownRef.current = seconds;
       try {
         import("./soundManager").then((m) => {
           if (typeof seconds === 'number') {
             if (seconds === 0) {
               m.playCountdownStart();
             } else {
-              m.playCountdownTick();
+              // Only play a tick when the value actually changed.
+              if (prev !== seconds) m.playCountdownTick();
             }
           }
         }).catch(() => {});
       } catch (_) {}
-      lobbyCountdownRef.current = seconds;
     });
 
-    // keep start value in sync when countdown begins
-    socketInstance.on("lobbyCountdown", (seconds: number | null) => {
-      // no-op here, handled in effect below
-    });
+    // keep start value in sync when countdown begins (handled by state effect)
 
     socketInstance.on("resetCountdown", (seconds: number | null) => {
       setResetCountdown(seconds);
@@ -706,6 +707,9 @@ const App = () => {
       if (pos < 0 || pos >= prev.length) return prev;
       return prev.slice(0, pos) + prev.slice(pos + 1);
     });
+
+    // play backspace/remove sound
+    import("./soundManager").then((m) => m.playBackspace()).catch(() => {});
 
     // Clear guards on next frame.
     requestAnimationFrame(() => {

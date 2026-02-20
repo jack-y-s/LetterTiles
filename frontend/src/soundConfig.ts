@@ -11,6 +11,7 @@ const soundFiles: Record<string, string> = {
   endGame: '/sounds/endGame.mp3',
   newChat: '/sounds/newChat.mp3',
   foundSix: '/sounds/foundSix.mp3',
+  backspace: '/sounds/backspace.mp3',
 };
 
 export default soundFiles;
