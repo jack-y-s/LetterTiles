@@ -559,6 +559,12 @@ html,
   box-shadow: none;
   cursor: pointer;
 }
+.letter-tile.used {
+  opacity: 0.28;
+  background: transparent;
+  border-style: dashed;
+  color: transparent;
+}
 
 .letter-tile.selected {
   outline: none;
@@ -1304,8 +1310,11 @@ ul {
 }
 
 .word-input {
-  width: 100%;
-  padding: 12px 16px;
+  width: 520px;
+  max-width: 95vw;
+  height: 80px;
+  min-height: calc(72px + 16px);
+  padding: 8px 16px;
   border-radius: 14px;
   border: 1px solid #d9c6ad;
   font-size: 18px;
@@ -1314,6 +1323,45 @@ ul {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+/* Floating-tile animations removed — handled by immediate state updates now */
+
+/* Typed letters inside the input should visually match the original tiles exactly */
+.typed-letter {
+  width: 72px;
+  height: 72px;
+  min-width: 72px;
+  min-height: 72px;
+  border-radius: var(--tile-radius);
+  display: grid;
+  place-items: center;
+  background: #fdf2da;
+  border: 2px solid #d7bfa2;
+  font-weight: 700;
+  font-size: 28px;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.typed-letter:active { transform: scale(0.96); }
+
+/* Mirror the responsive tile sizing applied to .letter-row .letter-tile */
+@media (max-width: 600px) {
+  .typed-letter {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    font-size: 1.5rem;
+  }
+  .word-input {
+    gap: 6px;
+  }
 }
 
 .word-input::placeholder {
@@ -1322,6 +1370,18 @@ ul {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #6b6257;
+}
+
+/* Center the placeholder text horizontally inside the word input when empty */
+.word-input-placeholder {
+  flex: 1 1 auto;
+  display: block;
+  text-align: center;
+  width: 100%;
+  color: #6b6257;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .word-input:disabled {

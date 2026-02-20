@@ -108,6 +108,19 @@ const App = () => {
   const [chatBlockedUntil, setChatBlockedUntil] = useState<number | null>(null);
   const chatBlockTimerRef = useRef<number | null>(null);
 
+  // Refs for animating tiles into the input
+  const tileRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const inputRef = useRef<HTMLDivElement | null>(null);
+  // Track indices that are currently animating/being consumed to avoid
+  // duplicate selection when the user types/clicks quickly.
+  const pendingIndicesRef = useRef<Set<number>>(new Set());
+  // Track which selected-word positions are currently animating back to
+  // their source tiles (for fast backspace handling).
+  const pendingBackPositionsRef = useRef<Set<number>>(new Set());
+  // When we submit or clear while animations are in-flight, mark those
+  // indices as aborted so their cleanup handlers don't re-add state.
+  const abortedIndicesRef = useRef<Set<number>>(new Set());
+
   // Profanity filtering is enforced server-side (leo-profanity). Client-side hardcoded list removed.
   const [lobbyCountdown, setLobbyCountdown] = useState<number | null>(null);
   // For enhanced countdown animation: remember starting value and pulse per tick
@@ -577,25 +590,88 @@ const App = () => {
   };
 
   const handleLetterClick = (index: number) => {
-    if (!joined || game.status !== "active") {
-      return;
-    }
-    setSelectedIndices((current) => {
-      if (current.includes(index)) {
-        return current.filter((value) => value !== index);
+    if (!joined || game.status !== "active") return;
+    // Prevent double-consume when a previous click is still animating
+    if (selectedIndices.includes(index) || pendingIndicesRef.current.has(index)) return; // already used or pending
+    pendingIndicesRef.current.add(index);
+    const letter = (game.letters[index] ?? '').toUpperCase();
+    // Instead of creating a floating DOM element and animating, commit the
+    // selection immediately (but keep the pending guard to avoid races).
+    // Use requestAnimationFrame so any layout changes settle before focus.
+    requestAnimationFrame(() => {
+      // If this index was aborted (submit/clear happened), don't add it.
+      if (abortedIndicesRef.current.has(index)) {
+        abortedIndicesRef.current.delete(index);
+        pendingIndicesRef.current.delete(index);
+        if (inputRef.current) inputRef.current.focus();
+        return;
       }
-      return [...current, index];
+      setSelectedIndices((cur) => (cur.includes(index) ? cur : [...cur, index]));
+      setTypedWord((prev) => (prev + letter).toUpperCase());
+      pendingIndicesRef.current.delete(index);
+      if (inputRef.current) inputRef.current.focus();
     });
-    setTypedWord((prev) => (prev + (game.letters[index] ?? "")).toUpperCase());
+  };
+
+  const animateLastTileBack = () => {
+    // Find the highest selected position that isn't already pending
+    let pos = selectedIndices.length - 1;
+    while (pos >= 0 && pendingBackPositionsRef.current.has(pos)) pos -= 1;
+    if (pos < 0) return;
+    animateTileBackAt(pos);
+  };
+
+  const animateTileBackAt = (pos: number) => {
+    if (pos < 0 || pos >= selectedIndices.length) return;
+    const idx = selectedIndices[pos];
+    // Prevent duplicate back animations for the same position
+    if (pendingBackPositionsRef.current.has(pos)) return;
+    pendingBackPositionsRef.current.add(pos);
+    const inputEl = inputRef.current;
+    // Immediately update the logical selection by position so rapid backspaces
+    // remove the intended character regardless of animation timing or index shifts.
+    setSelectedIndices((cur) => {
+      if (pos < 0 || pos >= cur.length) return cur;
+      const next = cur.filter((_, i) => i !== pos);
+      return next;
+    });
+    setTypedWord((prev) => {
+      if (pos < 0 || pos >= prev.length) return prev;
+      return prev.slice(0, pos) + prev.slice(pos + 1);
+    });
+
+    // Clear guards on next frame.
+    requestAnimationFrame(() => {
+      pendingBackPositionsRef.current.delete(pos);
+      pendingIndicesRef.current.delete(idx);
+      if (inputEl) inputEl.focus();
+    });
   };
 
   const handleSubmitWord = () => {
-    if (!socket || displayWord.length === 0) {
+    if (!socket) return;
+    // Build effective word from confirmed selections and any pending indices
+    const confirmed = selectedIndices.map((i) => (game.letters[i] ?? '').toUpperCase()).join('');
+    const pendingOrder = Array.from(pendingIndicesRef.current);
+    const pendingLetters = pendingOrder.map((i) => (game.letters[i] ?? '').toUpperCase()).join('');
+    const effectiveWord = (confirmed + pendingLetters).trim();
+    if (effectiveWord.length === 0) return;
+    // Do not submit words shorter than 3 letters — no penalty should be applied
+    if (effectiveWord.length < 3) {
+      pushToast("Words must be at least 3 letters.", "error");
       return;
     }
+
+    // Mark any pending indices as aborted so their animation cleanup won't re-add state
+    if (pendingOrder.length > 0) {
+      abortedIndicesRef.current = new Set(pendingOrder);
+      // clear pending immediately — we've incorporated them into the submission
+      pendingIndicesRef.current.clear();
+    }
+
     socket.emit(
       "submitWord",
-      { word: displayWord },
+      { word: effectiveWord },
       (response?: { ok: boolean; word?: string; points?: number; error?: string }) => {
         // Show result toast (valid/invalid)
         if (response?.ok && response.word) {
@@ -1066,30 +1142,61 @@ const App = () => {
                 <div className={`letter-row${shufflePulse ? " shuffle-pulse" : ""}`}>
                   {letterOrder.map((letterIndex) => (
                     <button
+                      id={`letter-tile-${letterIndex}`}
+                      ref={(el) => { tileRefs.current[letterIndex] = el; }}
                       key={`${displayLetters[letterIndex]}-${letterIndex}`}
-                      className={`letter-tile ${selectedIndices.includes(letterIndex) ? "selected" : ""}`}
+                      className={`letter-tile ${selectedIndices.includes(letterIndex) ? "used" : ""}`}
                       onClick={() => handleLetterClick(letterIndex)}
-                      disabled={!joined || game.status !== "active"}
+                      disabled={!joined || game.status !== "active" || selectedIndices.includes(letterIndex)}
+                      aria-hidden={selectedIndices.includes(letterIndex)}
                     >
-                      {displayLetters[letterIndex]}
+                      {selectedIndices.includes(letterIndex) ? '' : displayLetters[letterIndex]}
                     </button>
                   ))}
                 </div>
               )}
               <div className="word-builder">
-                <input
+                <div
                   className="word-input"
-                  value={typedWord}
-                  onChange={(event) => setTypedWord(event.target.value.toUpperCase())}
+                  ref={inputRef}
+                  tabIndex={0}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") {
+                    const k = event.key;
+                    if (k === "Enter") {
                       event.preventDefault();
                       handleSubmitWord();
+                      return;
+                    }
+                    if (k === 'Backspace') {
+                      event.preventDefault();
+                      animateLastTileBack();
+                      return;
+                    }
+                    if (/^[a-zA-Z]$/.test(k)) {
+                      const upper = k.toUpperCase();
+                      const avail = game.letters.findIndex((ch, idx) => ch === upper && !selectedIndices.includes(idx) && !pendingIndicesRef.current.has(idx));
+                      if (avail !== -1) {
+                        event.preventDefault();
+                        handleLetterClick(avail);
+                        return;
+                      }
                     }
                   }}
-                  placeholder="Pick or type letters and press Enter"
-                  disabled={!joined || game.status !== "active"}
-                />
+                >
+                  {typedWord.split("").map((ch, pos) => (
+                    <button
+                      key={`typed-${pos}`}
+                      type="button"
+                      className="typed-letter"
+                      onClick={() => animateTileBackAt(pos)}
+                    >
+                      {ch}
+                    </button>
+                  ))}
+                  {typedWord.length === 0 && (
+                    <span className="word-input-placeholder">Pick or type letters and press Enter</span>
+                  )}
+                </div>
                 <div className="word-actions">
                   <button type="button" onClick={handleClearWord} disabled={!canClear}>
                     Clear
