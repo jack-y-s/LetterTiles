@@ -516,7 +516,7 @@ const App = () => {
       setError("Enter a name to create your account.");
       return;
     }
-    const normalized = trimmed.toUpperCase();
+    const normalized = trimmed.toUpperCase().slice(0, 8);
     setAccountName(normalized);
     setAccountNameInput(normalized);
     setError(null);
@@ -857,11 +857,12 @@ const App = () => {
                 <div className="leaderboard-header">
                   <span>Choose Display Name</span>
                 </div>
-                <p className="muted">Pick a display name for this session.</p>
+                <p className="muted">Pick a display name for this session (max 8 characters).</p>
                 <input
                   value={accountNameInput}
-                  onChange={(event) => setAccountNameInput(event.target.value.toUpperCase())}
+                  onChange={(event) => setAccountNameInput(event.target.value.toUpperCase().slice(0, 8))}
                   placeholder="Your name"
+                  maxLength={8}
                 />
                 <button type="submit">Pick Name</button>
               </form>

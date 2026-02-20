@@ -1543,7 +1543,7 @@ ul {
   .podium-riser.second-riser { height: 100px; }
   .podium-riser.third-riser { height: 80px; }
   .podium-riser.third-riser.empty { height: 100px; }
-  .podium-avatar { width:35px; height:35px; }
+  .podium-avatar { width:30px; height:30px; }
   .podium-avatar.large { width:45px; height:45px; }
 }
 
