@@ -153,7 +153,15 @@ const injectAds = () => {
       return;
     }
     // Ensure an <ins class="adsbygoogle" data-ad-client> exists so push() works
-    let ins = document.querySelector('ins.adsbygoogle[data-ad-client]') as HTMLElement | null;
+    // Prefer a dedicated in-page anchor with id="ad-anchor" when available.
+    const anchor = document.getElementById('ad-anchor') as HTMLElement | null;
+    let ins = null as HTMLElement | null;
+    if (anchor) {
+      ins = anchor.querySelector('ins.adsbygoogle[data-ad-client]') as HTMLElement | null;
+    }
+    if (!ins) {
+      ins = document.querySelector('ins.adsbygoogle[data-ad-client]') as HTMLElement | null;
+    }
     if (!ins) {
       console.log('[adConsent] injectAds: no ins.adsbygoogle found — creating placeholder');
       ins = document.createElement('ins');
@@ -162,7 +170,7 @@ const injectAds = () => {
       // Minimal styles so it doesn't collapse; page can replace/position this element as needed
       ins.style.display = 'block';
       ins.style.minHeight = '1px';
-      document.body.appendChild(ins);
+      if (anchor) anchor.appendChild(ins); else document.body.appendChild(ins);
     }
     const s = document.createElement('script');
     s.async = true;
