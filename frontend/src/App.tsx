@@ -1280,16 +1280,7 @@ const App = () => {
           <div className="footer-links" style={{ marginBottom: 8 }}>
             <a href="/privacy.html">Privacy & Cookie Policy</a> &nbsp;·&nbsp; <a href="/contact.html">Contact</a>
           </div>
-          <div className="ad-slot" aria-hidden={false} role="complementary" aria-label="Advertisement">
-            <ins
-              className="adsbygoogle"
-              style={{ display: "inline-block", width: 320, height: 50, background: "#f6f6f6", color: "#666", lineHeight: "50px", textAlign: "center" }}
-              data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || "ca-pub-3913612227802101"}
-              data-ad-slot="8236587086"
-              data-ad-format="auto"
-              data-adtest={(import.meta as any).env.VITE_ADSENSE_TEST === "on" ? "on" : undefined}
-            />
-          </div>
+          {/* Ad placeholder removed below privacy/contact links to avoid serving ads on thin-content pages */}
         </footer>
         {/* CookieConsent removed; CookieYes handles the banner and consent */}
     </div>
