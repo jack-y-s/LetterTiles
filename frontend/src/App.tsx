@@ -488,8 +488,8 @@ const App = () => {
     const prev = prevTimeLeftRef.current;
     const cur = typeof game.timeLeft === 'number' ? game.timeLeft : null;
     if (cur !== null && (prev === null || cur < (prev as number))) {
-      // Trigger once when entering the final 14 seconds window
-      if (cur <= 14 && cur >= 0 && !roundFinalPlayedRef.current) {
+      // Trigger once when entering the final 9 seconds window
+      if (cur <= 9 && cur >= 0 && !roundFinalPlayedRef.current) {
         try {
           const sm = (window as any).__soundManager;
           if (sm && typeof sm.playRoundFinalTick === 'function') {
