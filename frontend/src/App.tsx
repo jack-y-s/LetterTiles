@@ -1124,8 +1124,8 @@ const App = () => {
                     </div>
                     {joinMode === "joinById" && (
                       <input
-                        value={lobbyIdInput}
-                        onChange={(event) => setLobbyIdInput(event.target.value)}
+                        value={lobbyIdInput.toUpperCase()}
+                        onChange={(event) => setLobbyIdInput(event.target.value.toUpperCase())}
                         placeholder="Enter lobby ID"
                       />
                     )}
@@ -1150,7 +1150,7 @@ const App = () => {
           <div className="card panel-box">
             <div className="leaderboard-header">
               <span>Players in Lobby</span>
-              {isMobile && (
+              {isMobile && game.status === 'active' && (
                 <button
                   type="button"
                   className="collapse-toggle"
@@ -1160,7 +1160,7 @@ const App = () => {
                 </button>
               )}
             </div>
-            {showPlayersPanel && (
+            {(showPlayersPanel || game.status !== 'active') && (
               game.players.length === 0 ? (
                 <p className="muted">No players yet.</p>
               ) : (
