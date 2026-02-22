@@ -1614,13 +1614,55 @@ const App = () => {
           </div>
         </div>
       )}
-        <footer style={{ textAlign: "center", padding: 12, opacity: 0.9 }}>
-          <div className="footer-links" style={{ marginBottom: 8 }}>
-            <a href="/privacy.html">Privacy & Cookie Policy</a> &nbsp;·&nbsp; <a href="/contact.html">Contact</a>
-          </div>
-          {/* Ad placeholder removed below privacy/contact links to avoid serving ads on thin-content pages */}
-        </footer>
-        {/* CookieConsent removed; CookieYes handles the banner and consent */}
+
+      {/* Ko‑fi tip banner (above footer) */}
+      <div className="kofi-banner" style={{ textAlign: 'center', margin: '12px 0' }}>
+        <button
+          type="button"
+          className="kofi-tip-button"
+          aria-label="Tip $3 on Ko‑fi"
+          onClick={() => {
+            const url = 'https://ko-fi.com/jacky1101/tip';
+            try {
+              const w = window.open(url, '_blank', 'noopener');
+              if (w) w.focus();
+            } catch (e) {
+              try { window.location.assign(url); } catch {}
+            }
+          }}
+          style={{
+            width: '100%',
+            maxWidth: '300px',
+            height: '30px',
+            background: 'linear-gradient(90deg, #ff5e5b 0%, #ffb347 100%)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '40px',
+            fontSize: '1rem',
+            fontWeight: 'bold',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            margin: '0 auto',
+            letterSpacing: '0.5px',
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', fontSize: '1.2rem', fontWeight: 'bold', color: '#fff', lineHeight: 1, textShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            Support me on
+            <img src="/kofi.png" alt="Ko-fi logo" style={{ height: '1.4rem', marginLeft: '10px', verticalAlign: 'middle', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.08))' }} />
+          </span>
+        </button>
+      </div>
+
+      <footer style={{ textAlign: "center", padding: 12, opacity: 0.9 }}>
+        <div className="footer-links" style={{ marginBottom: 8 }}>
+          <a href="/privacy.html">Privacy & Cookie Policy</a> &nbsp;·&nbsp; <a href="/contact.html">Contact</a>
+        </div>
+        {/* Ad placeholder removed below privacy/contact links to avoid serving ads on thin-content pages */}
+      </footer>
+      {/* CookieConsent removed; CookieYes handles the banner and consent */}
     </div>
   );
 };
