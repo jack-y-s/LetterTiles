@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import initAdConsent from "./adConsent";
-// CookieConsent removed; external CMP (CookieYes) now provides consent UI.
+// ...existing code...
 
 type Player = {
   id: string;
@@ -305,8 +304,7 @@ const App = () => {
   };
 
   useEffect(() => {
-    // Initialize ad consent manager (listens for CookieYes / TCF signals)
-    try { initAdConsent(); } catch (e) {}
+    // ...existing code...
 
     // Ensure audio unlocked on first user gesture and apply persisted mute
     const handler = () => {
@@ -1361,18 +1359,7 @@ const App = () => {
             <div className="toast-lane toast-right">
             </div>
           </section>
-          {game.status === 'active' && displayLetters.length > 0 && (
-            <div id="ad-anchor" style={{ margin: '12px 0', textAlign: 'center' }}>
-              <ins
-                className="adsbygoogle"
-                style={{ display: 'inline-block', width: 320, height: 50, background: '#f6f6f6', color: '#666', lineHeight: '50px', textAlign: 'center' }}
-                data-ad-client={(import.meta as any).env.VITE_ADSENSE_CLIENT || 'ca-pub-3913612227802101'}
-                data-ad-slot="8236587086"
-                data-ad-format="auto"
-                data-adtest={(import.meta as any).env.VITE_ADSENSE_TEST === 'on' ? 'on' : undefined}
-              />
-            </div>
-          )}
+          {game.status === 'active' && displayLetters.length > 0 && null}
           <section className="word-bank">
             <div className="leaderboard-header">
               <div className="word-bank-title">
@@ -1646,7 +1633,6 @@ const App = () => {
         </div>
         {/* Ad placeholder removed below privacy/contact links to avoid serving ads on thin-content pages */}
       </footer>
-      {/* CookieConsent removed; CookieYes handles the banner and consent */}
     </div>
   );
 };

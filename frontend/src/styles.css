@@ -475,10 +475,6 @@ html,
   width: 100%;
   min-height: 50px; /* reserve default banner height */
 }
-.ad-slot ins.adsbygoogle {
-  display: inline-block !important;
-  max-width: 100%;
-}
 .footer-links {
   position: relative;
   z-index: 20; /* ensure links stay above CMP elements if necessary */

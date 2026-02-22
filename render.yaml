@@ -25,5 +25,3 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://api.letter-tiles.com
-      - key: VITE_ADSENSE_CLIENT
-        value: ca-pub-3913612227802101
