@@ -203,7 +203,8 @@ button, .letter-tile, .ready-toggle, .lobby-id-badge-top, .lobby-ready-toggle {
 }
 :root {
   color-scheme: light;
-  font-family: "Trebuchet MS", "Segoe Print", sans-serif;
+  /* Prefer Inter (preloaded from Google Fonts), fall back to system fonts */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   background: #f6efe5;
   color: #1f1c1a;
   --page-pad: clamp(10px, 2.2vw, 24px);

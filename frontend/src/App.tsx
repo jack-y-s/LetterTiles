@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { io, Socket } from "socket.io-client";
+import LeaderboardItem from './components/LeaderboardItem';
+import LobbyPlayerItem from './components/LobbyPlayerItem';
+import RecentWordItem from './components/RecentWordItem';
+import VirtualizedList from './components/VirtualizedList';
+import type { Socket } from "socket.io-client";
 // ...existing code...
 
 type Player = {
@@ -69,8 +73,10 @@ const formatTime = (seconds: number) => {
 
 const App = () => {
       useEffect(() => {
-        // Inject Ko-fi overlay widget script
-        if (!document.getElementById('kofi-widget-script')) {
+        // Defer Ko-fi overlay widget until browser is idle to avoid blocking
+        // initial interactivity. Use requestIdleCallback with a timeout fallback.
+        const loadKofi = () => {
+          if (document.getElementById('kofi-widget-script')) return;
           const script = document.createElement('script');
           script.id = 'kofi-widget-script';
           script.src = 'https://storage.ko-fi.com/cdn/scripts/overlay-widget.js';
@@ -78,16 +84,38 @@ const App = () => {
           script.onload = () => {
             const kofiWidgetOverlay = (window as any).kofiWidgetOverlay;
             if (typeof kofiWidgetOverlay?.draw === 'function') {
-              kofiWidgetOverlay.draw('jacky1101', {
-                'type': 'floating-chat',
-                'floating-chat.donateButton.text': 'Support Me',
-                'floating-chat.donateButton.background-color': '#ff5f5f',
-                'floating-chat.donateButton.text-color': '#fff'
-              });
+              try {
+                kofiWidgetOverlay.draw('jacky1101', {
+                  type: 'floating-chat',
+                  'floating-chat.donateButton.text': 'Support Me',
+                  'floating-chat.donateButton.background-color': '#ff5f5f',
+                  'floating-chat.donateButton.text-color': '#fff'
+                });
+              } catch (e) {
+                // non-fatal
+              }
             }
           };
           document.body.appendChild(script);
+        };
+
+        let handle: number | null = null;
+        const ric = (window as any).requestIdleCallback;
+        if (typeof ric === 'function') {
+          handle = ric(loadKofi, { timeout: 2000 });
+        } else {
+          handle = window.setTimeout(loadKofi, 2000);
         }
+
+        return () => {
+          if (handle !== null) {
+            if ((window as any).cancelIdleCallback && typeof (window as any).cancelIdleCallback === 'function') {
+              try { (window as any).cancelIdleCallback(handle); } catch {}
+            } else {
+              clearTimeout(handle as number);
+            }
+          }
+        };
       }, []);
     // Floating points badge state
     const [pointsBadge, setPointsBadge] = useState<{ value: number, key: number } | null>(null);
@@ -209,14 +237,30 @@ const App = () => {
     if (initialCardOrderRef.current === null) {
       const sessionWords: string[] | undefined = (game as any).sessionWords;
       if (sessionWords && sessionWords.length > 0) {
-        const entries = sessionWords.map((w, idx) => ({ card: { id: idx, length: w.length, word: w.toUpperCase() } as WordCard, idx }));
-        const sorted = entries.sort((a, b) => {
-          if (b.card.length !== a.card.length) return b.card.length - a.card.length;
-          const aWord = (a.card.word || "").toLowerCase();
-          const bWord = (b.card.word || "").toLowerCase();
-          return aWord.localeCompare(bWord);
-        });
-        initialCardOrderRef.current = sorted.map(x => x.idx);
+        // Offload sorting to a web worker to avoid blocking the main thread
+        try {
+          const worker = new Worker(new URL('./workers/sorter.ts', import.meta.url), { type: 'module' });
+          worker.postMessage({ type: 'sortSessionWords', sessionWords });
+          const onMessage = (ev: MessageEvent) => {
+            const d = ev.data;
+            if (d && d.type === 'sorted' && Array.isArray(d.order)) {
+              initialCardOrderRef.current = d.order;
+            }
+            worker.removeEventListener('message', onMessage);
+            worker.terminate();
+          };
+          worker.addEventListener('message', onMessage);
+        } catch (e) {
+          // Fallback to synchronous sort if worker not available
+          const entries = sessionWords.map((w, idx) => ({ card: { id: idx, length: w.length, word: w.toUpperCase() } as WordCard, idx }));
+          const sorted = entries.sort((a, b) => {
+            if (b.card.length !== a.card.length) return b.card.length - a.card.length;
+            const aWord = (a.card.word || "").toLowerCase();
+            const bWord = (b.card.word || "").toLowerCase();
+            return aWord.localeCompare(bWord);
+          });
+          initialCardOrderRef.current = sorted.map(x => x.idx);
+        }
       } else if (displayCards.length > 0) {
         const entries = displayCards.map((card, idx) => ({ card: { ...card, word: card.word ?? "" }, idx }));
         const sorted = entries.sort((a, b) => {
@@ -250,7 +294,7 @@ const App = () => {
     return sortedPlayers[0].score === sortedPlayers[1].score;
   }, [game.status, sortedPlayers]);
 
-  const pushToast = (text: string, tone: Toast["tone"]) => {
+  const pushToast = useCallback((text: string, tone: Toast["tone"]) => {
     const now = Date.now();
     // Throttle frequent toasts to avoid flooding, but allow points to always show
     if (tone !== "plus" && tone !== "minus") {
@@ -262,15 +306,11 @@ const App = () => {
     window.setTimeout(() => {
       setToasts((current) => current.filter((toast) => toast.id !== id));
     }, 1000);
-  };
+  }, []);
 
   // Helpers must be defined at component scope
-  const pushMinus = (amount: number) => {
-    pushToast(`-${amount}`, "minus");
-  };
-  const pushPlus = (amount: number) => {
-    pushToast(`+${amount}`, "plus");
-  };
+  const pushMinus = useCallback((amount: number) => { pushToast(`-${amount}`, "minus"); }, [pushToast]);
+  const pushPlus = useCallback((amount: number) => { pushToast(`+${amount}`, "plus"); }, [pushToast]);
 
   // Enable confetti briefly when a winner overlay appears (but avoid on mobile)
   useEffect(() => {
@@ -324,24 +364,25 @@ const App = () => {
       import("./soundConfig").then((cfg) => { try { m.setSoundFiles(cfg.default || cfg); } catch (_) {} });
     }).catch(() => {});
 
-    const socketInstance = io(socketUrl, {
-      // Allow polling fallback (don't force websocket) so initial handshake
-      // can succeed in environments where WebSocket upgrade is blocked.
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000
-    });
+    // We'll dynamically import the Socket.IO client to keep socket code out of the main bundle.
+    let socketInstance: Socket | null = null;
 
-    socketInstance.on("connect", () => {
-      setError(null);
-    });
+    // Coalesce frequent `state` updates to avoid rendering churn.
+    const pendingStateRef = { current: null as GameState | null };
+    const pendingStateTimerRef = { current: null as number | null };
+    const FLUSH_DELAY = 100; // ms
 
-    socketInstance.on("state", (state: GameState) => {
-      setGame(state);
+    const flushPendingState = () => {
+      const s = pendingStateRef.current;
+      if (!s) return;
+      pendingStateRef.current = null;
+      pendingStateTimerRef.current = null;
+      // apply state once
+      setGame(s);
       try {
         const prev = prevCardsRef.current;
-        if (prev && Array.isArray(prev) && Array.isArray(state.cards)) {
-          for (const card of state.cards) {
+        if (prev && Array.isArray(prev) && Array.isArray(s.cards)) {
+          for (const card of s.cards) {
             const was = prev.find((c) => c.id === card.id);
             if (card.revealed && (!was || !was.revealed) && card.length === 6) {
               import("./soundManager").then((m) => m.playFoundSix()).catch(() => {});
@@ -349,90 +390,112 @@ const App = () => {
           }
         }
       } catch (_) {}
-      // Cache the last non-empty cards (for active/ended)
-      if ((state.status === "active" || state.status === "ended") && state.cards && state.cards.length > 0) {
-        lastNonEmptyCardsRef.current = state.cards;
+      if ((s.status === "active" || s.status === "ended") && s.cards && s.cards.length > 0) {
+        lastNonEmptyCardsRef.current = s.cards;
       }
-      if (state.status === "lobby") {
-        const isPlayer = state.players.some((player) => player.id === socketInstance.id);
+      if (s.status === "lobby") {
+        const isPlayer = socketInstance && s.players.some((player) => player.id === (socketInstance as any).id);
         if (!isPlayer) {
           setJoined(false);
         }
       }
-      // store previous cards snapshot for next state diff
-      prevCardsRef.current = state.cards;
-    });
+      prevCardsRef.current = s.cards;
+    };
 
-    socketInstance.on("tick", (timeLeft: number) => {
-      setGame((current) => ({ ...current, timeLeft }));
-    });
-
-    socketInstance.on("submissionError", (message: string) => {
-      setError(message);
-    })
-
-    socketInstance.on("submissionAccepted", ({ word }: { word: string }) => {
-      // handled in submitWord callback
-    });
-
-    socketInstance.on("chatMessage", (message: ChatMessage) => {
-      setChatMessages((prev) => [...prev, message]);
+    (async () => {
       try {
-        // Play a small notification for incoming chat (ignore if from self)
-        if (message.playerId !== socketInstance.id) {
-          import("./soundManager").then((m) => m.playNewChat()).catch(() => {});
-        }
-      } catch (_) {}
-    });
+        const mod = await import('socket.io-client');
+        const { io } = mod as any;
+        socketInstance = io(socketUrl, {
+          reconnection: true,
+          reconnectionAttempts: 10,
+          reconnectionDelay: 1000
+        });
+        const s = socketInstance as Socket;
 
-    socketInstance.on("chatHistory", (messages: ChatMessage[]) => {
-      setChatMessages(messages);
-    });
+        s.on("connect", () => {
+          setError(null);
+        });
 
-    socketInstance.on("lobbyCountdown", (seconds: number | null) => {
-      // Play tick each second; when reaching 0 play the countdownStart (go) sound
-      setLobbyCountdown(seconds);
-      // Update the ref immediately to prevent duplicate sound when the
-      // backend may emit the same value multiple times in quick succession.
-      const prev = lobbyCountdownRef.current;
-      lobbyCountdownRef.current = seconds;
-      try {
-        import("./soundManager").then((m) => {
-          if (typeof seconds === 'number') {
-            if (seconds === 0) {
-              m.playCountdownStart();
-            } else {
-              // Only play a tick when the value actually changed.
-              if (prev !== seconds) m.playCountdownTick();
-            }
+        s.on("state", (state: GameState) => {
+          // always keep the latest state and schedule a flush
+          pendingStateRef.current = state;
+          if (pendingStateTimerRef.current === null) {
+            pendingStateTimerRef.current = window.setTimeout(flushPendingState, FLUSH_DELAY) as unknown as number;
           }
-        }).catch(() => {});
-      } catch (_) {}
-    });
+        });
 
-    // keep start value in sync when countdown begins (handled by state effect)
+        s.on("tick", (timeLeft: number) => {
+          setGame((current) => ({ ...current, timeLeft }));
+        });
 
-    socketInstance.on("resetCountdown", (seconds: number | null) => {
-      setResetCountdown(seconds);
-    });
+        s.on("submissionError", (message: string) => {
+          setError(message);
+        })
 
-    socketInstance.on("lobbyFull", (message: string) => {
-      setError(message);
-    });
+        s.on("submissionAccepted", ({ word }: { word: string }) => {
+          // handled in submitWord callback
+        });
 
-    socketInstance.on("joinError", (message: string) => {
-      setError(message);
-      pushToast(message, "error");
-    });
+        s.on("chatMessage", (message: ChatMessage) => {
+          setChatMessages((prev) => [...prev, message]);
+          try {
+            if (message.playerId !== (s as any).id) {
+              import("./soundManager").then((m) => m.playNewChat()).catch(() => {});
+            }
+          } catch (_) {}
+        });
 
-    socketInstance.on("connect_error", (err) => {
-      setError(err.message);
-    });
+        s.on("chatHistory", (messages: ChatMessage[]) => {
+          setChatMessages(messages);
+        });
 
-    setSocket(socketInstance);
+        s.on("lobbyCountdown", (seconds: number | null) => {
+          setLobbyCountdown(seconds);
+          const prev = lobbyCountdownRef.current;
+          lobbyCountdownRef.current = seconds;
+          try {
+            import("./soundManager").then((m) => {
+              if (typeof seconds === 'number') {
+                if (seconds === 0) {
+                  m.playCountdownStart();
+                } else {
+                  if (prev !== seconds) m.playCountdownTick();
+                }
+              }
+            }).catch(() => {});
+          } catch (_) {}
+        });
+
+        s.on("resetCountdown", (seconds: number | null) => {
+          setResetCountdown(seconds);
+        });
+
+        s.on("lobbyFull", (message: string) => {
+          setError(message);
+        });
+
+        s.on("joinError", (message: string) => {
+          setError(message);
+          pushToast(message, "error");
+        });
+
+        s.on("connect_error", (err: any) => {
+          setError(err.message);
+        });
+
+        setSocket(s);
+      } catch (e) {
+        console.error('Failed to load socket.io-client dynamically', e);
+      }
+    })();
 
     return () => {
-      socketInstance.disconnect();
+      try {
+        if (socketInstance && typeof (socketInstance as any).disconnect === 'function') {
+          (socketInstance as any).disconnect();
+        }
+      } catch (_) {}
     };
   }, []);
 
@@ -819,7 +882,7 @@ const App = () => {
     setTypedWord("");
   };
 
-  const handleSendChat = () => {
+  const handleSendChat = useCallback(() => {
     const now = Date.now();
     const safe = chatInput.trim();
     if (!socket || !joined || !safe) {
@@ -859,7 +922,7 @@ const App = () => {
     // Server will enforce profanity filtering; send trimmed message as-is
     socket.emit("chatMessage", { message: safe });
     setChatInput("");
-  };
+  }, [socket, joined, chatInput, chatBlockedUntil, pushToast]);
 
   const handleReturnToLobby = () => {
     if (socket) {
@@ -1180,34 +1243,23 @@ const App = () => {
               )}
             </div>
             {(showPlayersPanel || game.status !== 'active') && (
-              game.players.length === 0 ? (
-                <p className="muted">No players yet.</p>
-              ) : (
-                <ul className="lobby-list">
-                  {game.players.map((player) => (
-                    <li key={player.id} className="lobby-item">
-                      <span className="avatar" style={{ background: player.avatarColor }}>
-                        {player.name.slice(0, 1).toUpperCase()}
-                      </span>
-                      <span>{player.name.toUpperCase()}</span>
-                      <span style={{ display: "flex", alignItems: "center", marginLeft: "auto", gap: 8 }}>
-                        {player.id === me?.id && joined && game.status === "lobby" && (
-                          <label className="ready-toggle" style={{ marginRight: 0 }}>
-                            <input
-                              type="checkbox"
-                              checked={!!player.ready}
-                              onChange={handleToggleReady}
-                            />
-                            <span className="ready-slider" />
-                          </label>
-                        )}
-                        <span className={`lobby-ready ${player.ready ? "is-ready" : "is-not-ready"}`}>{player.ready ? "Ready" : "Not ready"}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )
-            )}
+                game.players.length === 0 ? (
+                  <p className="muted">No players yet.</p>
+                ) : (
+                  <ul className="lobby-list">
+                    {game.players.map((player) => (
+                      <LobbyPlayerItem
+                        key={player.id}
+                        player={player}
+                        isMe={player.id === me?.id}
+                        joined={joined}
+                        gameStatus={game.status}
+                        onToggleReady={handleToggleReady}
+                      />
+                    ))}
+                  </ul>
+                )
+              )}
           </div>
           {joined && (
             <div className="chat-box">
@@ -1230,20 +1282,36 @@ const App = () => {
                       <p className="muted">No messages yet.</p>
                     ) : (
                       <>
-                        {chatMessages.map((msg) => (
-                          <div key={msg.id} className="chat-message">
-                            <span
-                              className="chat-avatar"
-                              style={{ background: msg.playerColor }}
-                            >
-                              {msg.playerName.slice(0, 1).toUpperCase()}
-                            </span>
-                            <div className="chat-content">
-                              <span className="chat-name">{msg.playerName}</span>
-                              <span className="chat-text">{msg.message}</span>
+                        {chatMessages.length > 20 ? (
+                          <VirtualizedList
+                            items={chatMessages}
+                            height={200}
+                            itemHeight={56}
+                            renderItem={(msg: any) => (
+                              <div key={msg.id} className="chat-message">
+                                <span className="chat-avatar" style={{ background: msg.playerColor }}>
+                                  {msg.playerName.slice(0, 1).toUpperCase()}
+                                </span>
+                                <div className="chat-content">
+                                  <span className="chat-name">{msg.playerName}</span>
+                                  <span className="chat-text">{msg.message}</span>
+                                </div>
+                              </div>
+                            )}
+                          />
+                        ) : (
+                          chatMessages.map((msg) => (
+                            <div key={msg.id} className="chat-message">
+                              <span className="chat-avatar" style={{ background: msg.playerColor }}>
+                                {msg.playerName.slice(0, 1).toUpperCase()}
+                              </span>
+                              <div className="chat-content">
+                                <span className="chat-name">{msg.playerName}</span>
+                                <span className="chat-text">{msg.message}</span>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))
+                        )}
                         <div ref={chatMessagesEndRef} />
                       </>
                     )}
@@ -1415,31 +1483,34 @@ const App = () => {
             <div className="leaderboard-header">
               <span>Live scoring</span>
             </div>
-            <ul>
-              {sortedPlayers.map((player, index) => (
-                <li
-                  key={player.id}
-                  className={`rank-item ${
-                    player.id === me?.id ? "active" : ""
-                  } ${rankChanges[player.id] === "up" ? "rank-up" : ""} ${
-                    rankChanges[player.id] === "down" ? "rank-down" : ""
-                  }`}
-                >
-                  <span className={`avatar ${index === 0 ? "leader" : ""}`} style={{ background: player.avatarColor }}>
-                    {player.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span>{player.name.toUpperCase()}</span>
-                  <span className="score">
-                    {index === 0 && (
-                      <svg className="crown" viewBox="0 0 24 24" aria-label="Leader" role="img">
-                        <path d="M3 7l4 4 5-6 5 6 4-4v10H3z" />
-                      </svg>
-                    )}
-                    {player.score}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            {sortedPlayers.length > 30 ? (
+              <VirtualizedList
+                items={sortedPlayers}
+                height={320}
+                itemHeight={48}
+                renderItem={(player: any, index: number) => (
+                  <LeaderboardItem
+                    key={player.id}
+                    player={player}
+                    index={index}
+                    isMe={player.id === me?.id}
+                    rankChange={rankChanges[player.id]}
+                  />
+                )}
+              />
+            ) : (
+              <ul>
+                {sortedPlayers.map((player, index) => (
+                  <LeaderboardItem
+                    key={player.id}
+                    player={player}
+                    index={index}
+                    isMe={player.id === me?.id}
+                    rankChange={rankChanges[player.id]}
+                  />
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="leaderboard recent-words">
@@ -1455,19 +1526,28 @@ const App = () => {
                 </button>
               )}
             </div>
-            {showRecentPanel && (
-              recentValidWords.length > 0 ? (
-                <div className={`recent-words-list${recentValidWords.length > 4 ? " two-columns" : ""}${recentValidWords.length > 4 ? " scrollable" : ""}`}>
-                  {recentValidWords.map((word, index) => (
-                    <div key={index} className="recent-word-item">
-                      {word}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="muted">No words yet.</p>
-              )
-            )}
+              {showRecentPanel && (
+                recentValidWords.length > 0 ? (
+                  <div className={`recent-words-list${recentValidWords.length > 4 ? ' two-columns' : ''}${recentValidWords.length > 4 ? ' scrollable' : ''}`}>
+                    {recentValidWords.length > 12 ? (
+                      <VirtualizedList
+                        items={recentValidWords}
+                        height={160}
+                        itemHeight={32}
+                        renderItem={(word: any, index: number) => (
+                          <RecentWordItem key={index} word={word} />
+                        )}
+                      />
+                    ) : (
+                      recentValidWords.map((word, index) => (
+                        <RecentWordItem key={index} word={word} />
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <p className="muted">No words yet.</p>
+                )
+              )}
           </div>
           <div className="hint-box">
             <div className="leaderboard-header">

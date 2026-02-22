@@ -3,18 +3,23 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "download-fonts": "node ./scripts/download-fonts.js",
+    "subset-fonts": "node ./scripts/subset-fonts.js",
+    "build": "node ./scripts/download-fonts.js && node ./scripts/subset-fonts.js && vite build && node ./scripts/precompress.js",
     "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-window": "^1.8.7",
     "socket.io-client": "^4.7.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",
+    "rollup-plugin-visualizer": "^7.0.0",
+    "terser": "^5.46.0",
     "typescript": "^5.4.2",
     "vite": "^7.3.1"
   }
