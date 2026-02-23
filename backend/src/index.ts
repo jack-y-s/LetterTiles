@@ -5,6 +5,7 @@ import { Server } from "socket.io";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from 'url';
+import { Pool } from 'pg';
 
 // __dirname replacement for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -237,9 +238,12 @@ const endSession = (lobby: Lobby) => {
   startResetCountdown(lobby);
   // Increment global total rounds and persist/broadcast the new total.
   try {
-    totalRounds = (totalRounds || 0) + 1;
-    saveTotalRounds();
-    io.emit('totalRoundsUpdated', totalRounds);
+    incrementTotalRoundsAtomic().then((newTotal) => {
+      totalRounds = newTotal;
+      io.emit('totalRoundsUpdated', totalRounds);
+    }).catch((e) => {
+      console.warn('[server] failed to update totalRounds in endSession', e);
+    });
   } catch (e) {
     console.warn('[server] failed to update totalRounds in endSession', e);
   }
@@ -319,6 +323,29 @@ let lobbyCounter = 1;
 // Global total rounds counter (persisted to disk so it survives restarts)
 const TOTAL_ROUNDS_FILE = path.resolve(__dirname, '..', 'total-rounds.json');
 let totalRounds = 0;
+// Optional Postgres pool (Neon). If `DATABASE_URL` is set in the environment
+// we'll attempt to use Postgres for durable, atomic updates. Otherwise we
+// keep using the JSON file fallback.
+let dbPool: Pool | null = null;
+const DATABASE_URL = process.env.DATABASE_URL || null;
+
+const initDb = async () => {
+  if (!DATABASE_URL) return;
+  try {
+    dbPool = new Pool({ connectionString: DATABASE_URL, max: 5, ssl: { rejectUnauthorized: false } });
+    // Ensure table exists and a row for totalRounds is present.
+    await dbPool.query(`CREATE TABLE IF NOT EXISTS global_meta (key TEXT PRIMARY KEY, total BIGINT NOT NULL DEFAULT 0)`);
+    await dbPool.query(`INSERT INTO global_meta(key, total) VALUES($1, $2) ON CONFLICT DO NOTHING`, ['totalRounds', 0]);
+    const res = await dbPool.query(`SELECT total FROM global_meta WHERE key = $1 LIMIT 1`, ['totalRounds']);
+    if (res.rows.length > 0) {
+      totalRounds = Number(res.rows[0].total) || 0;
+      console.log('[server] loaded totalRounds from database =', totalRounds);
+    }
+  } catch (e) {
+    console.warn('[server] failed to initialize database for totalRounds, falling back to file', e);
+    dbPool = null;
+  }
+};
 const loadTotalRounds = () => {
   try {
     if (fs.existsSync(TOTAL_ROUNDS_FILE)) {
@@ -348,6 +375,12 @@ const loadTotalRounds = () => {
   totalRounds = 0;
 };
 const saveTotalRounds = () => {
+  if (dbPool) {
+    dbPool.query('UPDATE global_meta SET total = $1 WHERE key = $2', [totalRounds, 'totalRounds']).catch((e) => {
+      console.warn('[server] failed to persist totalRounds to db', e);
+    });
+    return;
+  }
   try {
     fs.writeFileSync(TOTAL_ROUNDS_FILE, JSON.stringify({ total: totalRounds }), 'utf8');
   } catch (e) {
@@ -355,6 +388,29 @@ const saveTotalRounds = () => {
   }
 };
 loadTotalRounds();
+// Initialize DB in background (if configured). File fallback already loaded above.
+void initDb();
+
+// Atomically increment total rounds using DB when available, otherwise fall back
+// to the file-based increment. Returns the new total.
+const incrementTotalRoundsAtomic = async (): Promise<number> => {
+  if (dbPool) {
+    try {
+      const res = await dbPool.query('UPDATE global_meta SET total = total + 1 WHERE key = $1 RETURNING total', ['totalRounds']);
+      if (res.rowCount === 0) {
+        await dbPool.query('INSERT INTO global_meta(key, total) VALUES($1, 1)', ['totalRounds']);
+        return 1;
+      }
+      return Number(res.rows[0].total);
+    } catch (e) {
+      console.warn('[server] DB increment failed, falling back to file', e);
+      // fall through to file fallback
+    }
+  }
+  totalRounds = (totalRounds || 0) + 1;
+  saveTotalRounds();
+  return totalRounds;
+};
 
 const pickRandom = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
 
@@ -796,10 +852,14 @@ io.on("connection", (socket) => {
 
   socket.on('incrementTotalRounds', (ack?: (value: number) => void) => {
     try {
-      totalRounds = (totalRounds || 0) + 1;
-      saveTotalRounds();
-      io.emit('totalRoundsUpdated', totalRounds);
-      if (typeof ack === 'function') ack(totalRounds);
+      incrementTotalRoundsAtomic().then((newTotal) => {
+        totalRounds = newTotal;
+        io.emit('totalRoundsUpdated', totalRounds);
+        if (typeof ack === 'function') ack(totalRounds);
+      }).catch((e) => {
+        console.warn('[server] failed to increment totalRounds via socket', e);
+        if (typeof ack === 'function') ack(totalRounds);
+      });
     } catch (e) {
       console.warn('[server] failed to increment totalRounds via socket', e);
       if (typeof ack === 'function') ack(totalRounds);

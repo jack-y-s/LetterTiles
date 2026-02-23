@@ -4,3 +4,41 @@ dist
 .vscode
 .env
 frontend/.env.local
+
+# Backend
+backend/node_modules/
+backend/dist/
+backend/total-rounds.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+.vite/
+.cache/
+
+# Build / outputs
+build/
+dist/
+
+# Logs / temp
+*.log
+npm-debug.log*
+yarn-debug.log*
+*.tsbuildinfo
+
+# Precompressed / generated
+**/*.gz
+**/*.br
+
+# Coverage
+coverage/
+nyc_output/
+
+# Keys / certs
+*.pem
+*.key
+*.crt
+
+# Ignore OS files
+Thumbs.db
+
