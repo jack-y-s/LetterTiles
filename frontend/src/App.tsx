@@ -187,6 +187,15 @@ const App = () => {
   const [showChatPanel, setShowChatPanel] = useState(true);
   const [showRecentPanel, setShowRecentPanel] = useState(true);
   const [showHintPanel, setShowHintPanel] = useState(true);
+  const [totalRounds, setTotalRounds] = useState<number>(() => {
+    try {
+      const v = localStorage.getItem('totalRoundsPlayed');
+      return v ? parseInt(v, 10) : 0;
+    } catch (_) {
+      return 0;
+    }
+  });
+  const prevStatusRef = useRef<string | null>(null);
   const [showHiddenPanel, setShowHiddenPanel] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [confettiEnabled, setConfettiEnabled] = useState(false);
@@ -621,6 +630,88 @@ const App = () => {
       setLobbyCountdown(null);
     }
   }, [game.status, game.winner, winnerDismissed]);
+
+  // Server-backed global rounds counter: request current value and
+  // listen for updates. Fallback to localStorage when server isn't available.
+  useEffect(() => {
+    if (!socket) return;
+    let mounted = true;
+
+    const apply = (value: number) => {
+      if (!mounted) return;
+      setTotalRounds(value);
+      try { localStorage.setItem('totalRoundsPlayed', String(value)); } catch (_) {}
+    };
+
+    // Common event names used by different backends; listen to all.
+    socket.on('totalRounds', apply);
+    socket.on('globalRounds', apply);
+    socket.on('totalRoundsUpdated', apply);
+
+    // Ask server for the current value (using an acknowledgement if supported).
+    try {
+      (socket as any).timeout?.(2000).emit?.('getTotalRounds', (ack: any) => {
+        if (!mounted) return;
+        if (typeof ack === 'number') apply(ack);
+      });
+    } catch (_) {
+      // ignore; server may not implement ack-style API
+    }
+
+    return () => {
+      mounted = false;
+      try {
+        socket.off('totalRounds', apply);
+        socket.off('globalRounds', apply);
+        socket.off('totalRoundsUpdated', apply);
+      } catch (_) {}
+    };
+  }, [socket]);
+
+  // When a round ends, prefer asking the server to increment the global
+  // counter. If the server isn't available or doesn't respond, fall back
+  // to a local increment so the UI still updates.
+  useEffect(() => {
+    if (prevStatusRef.current !== 'ended' && game.status === 'ended') {
+      const fallbackLocalIncrement = () => {
+        setTotalRounds((prev) => {
+          const next = prev + 1;
+          try { localStorage.setItem('totalRoundsPlayed', String(next)); } catch (_) {}
+          return next;
+        });
+      };
+
+      if (socket && (socket as any).connected) {
+        try {
+          (socket as any).timeout?.(2000).emit?.('incrementTotalRounds', (ack: any) => {
+            if (typeof ack === 'number') {
+              try { localStorage.setItem('totalRoundsPlayed', String(ack)); } catch (_) {}
+              setTotalRounds(ack);
+            } else {
+              fallbackLocalIncrement();
+            }
+          });
+        } catch (_) {
+          fallbackLocalIncrement();
+        }
+      } else {
+        // Socket unavailable: optimistic local increment, and attempt a REST call
+        fallbackLocalIncrement();
+        try {
+          fetch(`${API_BASE}/totalRounds/increment`, { method: 'POST' })
+            .then((r) => r.json())
+            .then((data) => {
+              if (data && typeof data.total === 'number') {
+                try { localStorage.setItem('totalRoundsPlayed', String(data.total)); } catch (_) {}
+                setTotalRounds(data.total);
+              }
+            })
+            .catch(() => {});
+        } catch (_) {}
+      }
+    }
+    prevStatusRef.current = game.status;
+  }, [game.status, socket]);
 
   useEffect(() => {
     const nextChanges: Record<string, "up" | "down" | "same"> = {};
@@ -1068,6 +1159,7 @@ const App = () => {
               {game.status === "active" ? "Round live" : "In lobby"}
             </span>
           </div>
+          <div className="total-rounds">Global Rounds Played: <span>{totalRounds}</span></div>
         </div>
 
         <div className="timer-block">

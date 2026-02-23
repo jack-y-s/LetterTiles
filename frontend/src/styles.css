@@ -1089,6 +1089,20 @@ ul {
     font-size: 16px;
   }
 }
+
+/* Global total rounds counter pinned bottom-right */
+.total-rounds {
+  display: block;
+  margin-top: 8px;
+  color: #6b6b6b;
+  font-weight: 500;
+  font-size: 0.70rem;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  text-align: left;
+}
 .hint-chip {
   display: inline-grid;
   place-items: center;

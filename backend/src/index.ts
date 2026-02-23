@@ -235,6 +235,14 @@ const endSession = (lobby: Lobby) => {
   lobby.state.lastAction = top ? `${top.name} wins the round` : "Round ended";
   broadcastState(lobby);
   startResetCountdown(lobby);
+  // Increment global total rounds and persist/broadcast the new total.
+  try {
+    totalRounds = (totalRounds || 0) + 1;
+    saveTotalRounds();
+    io.emit('totalRoundsUpdated', totalRounds);
+  } catch (e) {
+    console.warn('[server] failed to update totalRounds in endSession', e);
+  }
   if (lobby.resetTimer) {
     clearTimeout(lobby.resetTimer);
   }
@@ -307,6 +315,46 @@ const LOBBY_ANIMALS = [
 const lobbies = new Map<string, Lobby>();
 const socketLobbyMap = new Map<string, string>();
 let lobbyCounter = 1;
+
+// Global total rounds counter (persisted to disk so it survives restarts)
+const TOTAL_ROUNDS_FILE = path.resolve(__dirname, '..', 'total-rounds.json');
+let totalRounds = 0;
+const loadTotalRounds = () => {
+  try {
+    if (fs.existsSync(TOTAL_ROUNDS_FILE)) {
+      const raw = fs.readFileSync(TOTAL_ROUNDS_FILE, 'utf8').trim();
+      if (raw.length > 0) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.total === 'number') {
+            totalRounds = Math.max(0, Math.floor(parsed.total));
+            console.log('[server] loaded totalRounds =', totalRounds);
+            return;
+          }
+        } catch (_) {
+          // Fallback to treating file as a plain number
+          const n = Number(raw);
+          if (!Number.isNaN(n)) {
+            totalRounds = Math.max(0, Math.floor(n));
+            console.log('[server] loaded totalRounds (legacy) =', totalRounds);
+            return;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[server] failed to load totalRounds file', e);
+  }
+  totalRounds = 0;
+};
+const saveTotalRounds = () => {
+  try {
+    fs.writeFileSync(TOTAL_ROUNDS_FILE, JSON.stringify({ total: totalRounds }), 'utf8');
+  } catch (e) {
+    console.warn('[server] failed to persist totalRounds', e);
+  }
+};
+loadTotalRounds();
 
 const pickRandom = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
 
@@ -735,6 +783,28 @@ setInterval(() => {
 io.on("connection", (socket) => {
   const clientIP = (socket.handshake.headers["cf-connecting-ip"] as string) || socket.conn.remoteAddress;
   console.log(`socket connected ${socket.id} ip=${clientIP}`);
+  // Send current global rounds counter to the newly connected client
+  try {
+    socket.emit('totalRounds', totalRounds);
+  } catch (_) {}
+
+  // Socket handlers to read/increment the global counter.
+  socket.on('getTotalRounds', (ack?: (value: number) => void) => {
+    if (typeof ack === 'function') return ack(totalRounds);
+    try { socket.emit('totalRounds', totalRounds); } catch (_) {}
+  });
+
+  socket.on('incrementTotalRounds', (ack?: (value: number) => void) => {
+    try {
+      totalRounds = (totalRounds || 0) + 1;
+      saveTotalRounds();
+      io.emit('totalRoundsUpdated', totalRounds);
+      if (typeof ack === 'function') ack(totalRounds);
+    } catch (e) {
+      console.warn('[server] failed to increment totalRounds via socket', e);
+      if (typeof ack === 'function') ack(totalRounds);
+    }
+  });
   const handleLeaveLobby = () => {
     const lobby = getLobbyForSocket(socket.id);
     if (!lobby) {
@@ -1096,4 +1166,22 @@ app.get("/health", (_req, res) => {
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+});
+
+// Provide a simple REST API to read and increment the global rounds counter.
+app.get('/totalRounds', (_req, res) => {
+  res.json({ total: totalRounds });
+});
+
+app.post('/totalRounds/increment', (_req, res) => {
+  try {
+    totalRounds = (totalRounds || 0) + 1;
+    saveTotalRounds();
+    // Notify connected clients
+    io.emit('totalRoundsUpdated', totalRounds);
+    res.json({ total: totalRounds });
+  } catch (e) {
+    console.warn('[server] failed to increment totalRounds via REST', e);
+    res.status(500).json({ error: 'failed' });
+  }
 });
