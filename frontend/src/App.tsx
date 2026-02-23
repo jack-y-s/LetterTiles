@@ -668,50 +668,13 @@ const App = () => {
     };
   }, [socket]);
 
-  // When a round ends, prefer asking the server to increment the global
-  // counter. If the server isn't available or doesn't respond, fall back
-  // to a local increment so the UI still updates.
+  // The server is authoritative for total rounds. Keep previous status
+  // tracked but do NOT emit increment requests from clients to avoid
+  // duplicate increments. The server increments in `endSession()` and
+  // broadcasts `totalRoundsUpdated` which the client listens for above.
   useEffect(() => {
-    if (prevStatusRef.current !== 'ended' && game.status === 'ended') {
-      const fallbackLocalIncrement = () => {
-        setTotalRounds((prev) => {
-          const next = prev + 1;
-          try { localStorage.setItem('totalRoundsPlayed', String(next)); } catch (_) {}
-          return next;
-        });
-      };
-
-      if (socket && (socket as any).connected) {
-        try {
-          (socket as any).timeout?.(2000).emit?.('incrementTotalRounds', (ack: any) => {
-            if (typeof ack === 'number') {
-              try { localStorage.setItem('totalRoundsPlayed', String(ack)); } catch (_) {}
-              setTotalRounds(ack);
-            } else {
-              fallbackLocalIncrement();
-            }
-          });
-        } catch (_) {
-          fallbackLocalIncrement();
-        }
-      } else {
-        // Socket unavailable: optimistic local increment, and attempt a REST call
-        fallbackLocalIncrement();
-        try {
-          fetch(`${API_BASE}/totalRounds/increment`, { method: 'POST' })
-            .then((r) => r.json())
-            .then((data) => {
-              if (data && typeof data.total === 'number') {
-                try { localStorage.setItem('totalRoundsPlayed', String(data.total)); } catch (_) {}
-                setTotalRounds(data.total);
-              }
-            })
-            .catch(() => {});
-        } catch (_) {}
-      }
-    }
     prevStatusRef.current = game.status;
-  }, [game.status, socket]);
+  }, [game.status]);
 
   useEffect(() => {
     const nextChanges: Record<string, "up" | "down" | "same"> = {};
