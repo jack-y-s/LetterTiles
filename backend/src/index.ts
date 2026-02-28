@@ -223,6 +223,12 @@ app.post('/admin/reload-bad-words', (_req, res) => {
 });
 
 const endSession = (lobby: Lobby) => {
+  // Clear any pending bot timers immediately to avoid stray submissions
+  if (lobby.botTimers) {
+    lobby.botTimers.forEach((timers) => timers.forEach((t) => clearTimeout(t)));
+    lobby.botTimers.clear();
+  }
+
   lobby.state.status = "ended";
   lobby.sessionEndAt = null;
 
@@ -265,11 +271,18 @@ const endSession = (lobby: Lobby) => {
     lobby.sessionEndAt = null;
     lobby.state.timeLeft = SESSION_SECONDS;
     lobby.state.cards = [];
+    // Keep bots ready so bot-only lobbies automatically restart
+    const botIds = new Set(lobby.botMeta ? Array.from(lobby.botMeta.keys()) : []);
     lobby.state.players = lobby.state.players.map((player) => ({
       ...player,
-      ready: false
+      ready: botIds.has(player.id) ? true : false
     }));
     resetScores(lobby);
+    // Ensure no leftover bot timers remain
+    if (lobby.botTimers) {
+      lobby.botTimers.forEach((timers) => timers.forEach((t) => clearTimeout(t)));
+      lobby.botTimers.clear();
+    }
     stopLobbyCountdown(lobby);
     stopResetCountdown(lobby);
     if (lobby.state.players.length > 0) {
@@ -278,6 +291,43 @@ const endSession = (lobby: Lobby) => {
       destroyLobby(lobby);
     }
   }, RESET_DELAY_SECONDS * 1000);
+};
+
+// Abort an active session without counting it towards global rounds.
+// Used when the human player(s) leave during a bots-only match.
+const abortSessionWithoutCounting = (lobby: Lobby) => {
+  // Stop any timers and clear bot timers
+  stopLobbyCountdown(lobby);
+  stopResetCountdown(lobby);
+  if (lobby.resetTimer) {
+    clearTimeout(lobby.resetTimer);
+    lobby.resetTimer = null;
+  }
+  if (lobby.botTimers) {
+    lobby.botTimers.forEach((timers) => timers.forEach((t) => clearTimeout(t)));
+    lobby.botTimers.clear();
+  }
+  // Reset session state without incrementing global counter
+  lobby.state.status = "lobby";
+  lobby.state.lastAction = "Session aborted (no players)";
+  lobby.state.winner = null;
+  lobby.letters = [];
+  lobby.sessionWords = [];
+  lobby.revealedByPlayer = new Map();
+  lobby.wordIndex = new Map();
+  lobby.submittedWords = new Map();
+  lobby.hiddenBonusAwarded = new Set();
+  lobby.sessionEndAt = null;
+  lobby.state.timeLeft = SESSION_SECONDS;
+  lobby.state.cards = [];
+  // Keep bots ready so if a human rejoins we can auto-start as desired
+  const botIds = new Set(lobby.botMeta ? Array.from(lobby.botMeta.keys()) : []);
+  lobby.state.players = lobby.state.players.map((player) => ({
+    ...player,
+    ready: botIds.has(player.id) ? true : false
+  }));
+  resetScores(lobby);
+  broadcastState(lobby);
 };
 
 const getTimeLeft = (lobby: Lobby) => {
@@ -998,6 +1048,12 @@ io.on("connection", (socket) => {
     socketLobbyMap.delete(socket.id);
     if (lobby.state.players.length === 0) {
       destroyLobby(lobby);
+      return;
+    }
+    // If the game was active and no human players remain, abort session
+    const humanRemaining = lobby.state.players.some((p) => !(lobby.botMeta && lobby.botMeta.has(p.id)));
+    if (lobby.state.status === "active" && !humanRemaining) {
+      abortSessionWithoutCounting(lobby);
       return;
     }
     if (leaving) {
