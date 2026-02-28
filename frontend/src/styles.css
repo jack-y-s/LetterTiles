@@ -209,18 +209,24 @@
   display: flex;
   gap: 8px;
   margin-top: 6px;
+  width: 100%;
 }
 .bot-difficulty-button {
-  padding: 6px 12px;
-  border-radius: 12px;
+  flex: 1 1 0;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 0;
+  border-radius: 10px;
   border: 1px solid rgba(0,0,0,0.08);
-  background: #f4a61c; /* lightning color for unselected */
+  background: #f4a61c;
   cursor: pointer;
   font-weight: 700;
   text-transform: capitalize;
   color: #1f1c1a;
   border-color: #f4a61c;
   transition: background 0.15s, color 0.15s, transform 0.08s;
+  min-width: 0;
 }
 .bot-difficulty-button:hover { transform: translateY(-1px); }
 .bot-difficulty-button.selected {
@@ -255,6 +261,23 @@
 button, .letter-tile, .ready-toggle, .lobby-id-badge-top, .lobby-ready-toggle {
   touch-action: manipulation;
   -webkit-tap-highlight-color: rgba(0,0,0,0);
+}
+
+/* Disable hover/transform effects on touch devices to avoid accidental hover styles */
+@media (hover: none) and (pointer: coarse) {
+  .bot-difficulty-button:hover,
+  .bot-count-pill:hover,
+  button:hover,
+  .letter-tile:hover,
+  .kofi-tip-button:hover {
+    transform: none !important;
+    filter: none !important;
+  }
+  .bot-difficulty-button:active,
+  .bot-count-pill:active,
+  button:active {
+    transform: none !important;
+  }
 }
 :root {
   color-scheme: light;
@@ -1367,6 +1390,45 @@ ul {
   width: 100%;
   max-width: 100%;
   justify-self: stretch;
+}
+
+/* iPad landscape and medium tablets: reduce center column minimums so the
+   tiles and controls fit without visual shift or overflow. Also slightly
+   reduce tile/input sizes to maintain balance. */
+@media (min-width: 700px) and (max-width: 1100px) {
+  .letter-center {
+    grid-template-columns: minmax(80px, 1fr) minmax(520px, 1fr) minmax(80px, 1fr);
+    padding: clamp(10px, 2vw, 16px);
+  }
+  .letter-center-content {
+    gap: 12px;
+    grid-column: 2;
+  }
+  .letter-row {
+    gap: 12px;
+  }
+  .letter-row .letter-tile {
+    width: 64px;
+    height: 64px;
+    font-size: 1.6rem;
+  }
+  .typed-letter {
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    min-height: 64px;
+    font-size: 22px;
+  }
+  .word-builder {
+    width: 100%;
+    max-width: 520px;
+  }
+  .word-input {
+    width: 100%;
+    max-width: 520px;
+    padding: 8px 16px;
+    justify-content: center;
+  }
 }
 
 .letter-center-content {

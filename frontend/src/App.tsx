@@ -1228,7 +1228,11 @@ const App = () => {
                       </svg>
                     )}
                   </button>
-                  {game.lobbyId && (
+                  {game.lobbyId && joinMode === 'bots' && joined ? (
+                    <div className="lobby-id-badge-top" aria-hidden="true">
+                      <span>PLAYING WITH A BOT</span>
+                    </div>
+                  ) : game.lobbyId ? (
                     <button
                       type="button"
                       className="lobby-id-badge-top"
@@ -1240,7 +1244,7 @@ const App = () => {
                         <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H10V7h9v14z" />
                       </svg>
                     </button>
-                  )}
+                  ) : null}
                 </div>
                 <p className="muted">Display Name: {(me?.name ?? accountName).toUpperCase()}</p>
                 {!joined && (
@@ -1264,7 +1268,7 @@ const App = () => {
                           checked={joinMode === "bots"}
                           onChange={() => setJoinMode("bots")}
                         />
-                        <span>Play With Bots</span>
+                        <span>Play with a Bot</span>
                       </label>
                       <label>
                         <input
@@ -1312,22 +1316,7 @@ const App = () => {
                             ))}
                           </div>
                         </div>
-                        <div className="bots-row">
-                          <div className="muted">Bot count:</div>
-                          <div className="bot-count-pills" role="list">
-                            {[1,2,3,4,5,6].map((n) => (
-                              <button
-                                key={n}
-                                type="button"
-                                className={"bot-count-pill" + (joinBotsCount === n ? ' selected' : '')}
-                                onClick={() => setJoinBotsCount(n)}
-                                aria-current={joinBotsCount === n}
-                              >
-                                {n}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                        {/* Bot count removed — single-bot mode only */}
                       </div>
                     )}
                   </>

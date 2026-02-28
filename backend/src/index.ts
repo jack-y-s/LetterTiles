@@ -630,11 +630,15 @@ const createLobby = () => {
 };
 
 const getLobbyForJoin = () => {
+  // Prefer lobbies that are open and do NOT have bots so "Join Random"
+  // matches other human players only.
   for (const lobby of lobbies.values()) {
-    if (lobby.state.status === "lobby" && lobby.state.players.length < MAX_PLAYERS) {
+    const hasBot = !!(lobby.botMeta && lobby.botMeta.size > 0);
+    if (lobby.state.status === "lobby" && lobby.state.players.length < MAX_PLAYERS && !hasBot) {
       return lobby;
     }
   }
+  // Fallback: no suitable human-only lobby found — create a fresh lobby.
   return createLobby();
 };
 
@@ -1050,10 +1054,10 @@ io.on("connection", (socket) => {
       destroyLobby(lobby);
       return;
     }
-    // If no human players remain (this is a bot-only lobby), abort immediately
+    // If no human players remain (this is a bot-only lobby), destroy it immediately
     const humanRemaining = lobby.state.players.some((p) => !(lobby.botMeta && lobby.botMeta.has(p.id)));
     if (!humanRemaining) {
-      abortSessionWithoutCounting(lobby);
+      destroyLobby(lobby);
       return;
     }
     if (leaving) {
@@ -1404,10 +1408,10 @@ io.on("connection", (socket) => {
     socket.leave(lobby.id);
     socketLobbyMap.delete(socket.id);
     
-    // If no human players remain (bot-only lobby), abort immediately
+    // If no human players remain (bot-only lobby), destroy it immediately
     const humanRemaining = lobby.state.players.some((p) => !(lobby.botMeta && lobby.botMeta.has(p.id)));
     if (!humanRemaining) {
-      abortSessionWithoutCounting(lobby);
+      destroyLobby(lobby);
       return;
     }
 
