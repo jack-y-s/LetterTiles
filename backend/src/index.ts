@@ -1050,9 +1050,9 @@ io.on("connection", (socket) => {
       destroyLobby(lobby);
       return;
     }
-    // If the game was active and no human players remain, abort session
+    // If no human players remain (this is a bot-only lobby), abort immediately
     const humanRemaining = lobby.state.players.some((p) => !(lobby.botMeta && lobby.botMeta.has(p.id)));
-    if (lobby.state.status === "active" && !humanRemaining) {
+    if (!humanRemaining) {
       abortSessionWithoutCounting(lobby);
       return;
     }
@@ -1102,6 +1102,13 @@ io.on("connection", (socket) => {
   // Play with bots: create a lobby and populate with bots of selected difficulty.
   socket.on('playWithBots', ({ name, difficulty, botCount }: { name: string; difficulty?: string; botCount?: number }, callback?: (result: any) => void) => {
     try {
+      // If this socket is already in a lobby, return existing lobby id instead
+      if (socketLobbyMap.has(socket.id)) {
+        const existing = getLobbyForSocket(socket.id);
+        if (existing) {
+          return callback?.({ ok: true, lobbyId: existing.id });
+        }
+      }
       const safeName = (name?.trim() || 'Player').toUpperCase();
       const lobby = createLobby();
       socket.join(lobby.id);
@@ -1397,6 +1404,13 @@ io.on("connection", (socket) => {
     socket.leave(lobby.id);
     socketLobbyMap.delete(socket.id);
     
+    // If no human players remain (bot-only lobby), abort immediately
+    const humanRemaining = lobby.state.players.some((p) => !(lobby.botMeta && lobby.botMeta.has(p.id)));
+    if (!humanRemaining) {
+      abortSessionWithoutCounting(lobby);
+      return;
+    }
+
     const cleanupTimer = setTimeout(() => {
       lobby.disconnectedPlayers.delete(leaving.name);
       if (lobby.state.players.length === 0 && lobby.disconnectedPlayers.size === 0) {

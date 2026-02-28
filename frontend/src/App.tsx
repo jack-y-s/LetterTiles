@@ -214,6 +214,7 @@ const App = () => {
   const [joinMode, setJoinMode] = useState<JoinMode>("random");
   const [joinBotsDifficulty, setJoinBotsDifficulty] = useState<'easy' | 'medium' | 'hard' | 'genius'>('easy');
   const [joinBotsCount, setJoinBotsCount] = useState<number>(1);
+  const [joiningBots, setJoiningBots] = useState(false);
   const [lobbyIdInput, setLobbyIdInput] = useState("");
   const [game, setGame] = useState<GameState>({
     players: [],
@@ -797,7 +798,10 @@ const App = () => {
     } else {
       // Random join or play with bots
       if (joinMode === 'bots') {
+        if (joiningBots) return;
+        setJoiningBots(true);
         socket.emit('playWithBots', { name: accountName.trim().toUpperCase(), difficulty: joinBotsDifficulty, botCount: joinBotsCount }, (result: any) => {
+          setJoiningBots(false);
           if (result?.ok) {
             setJoined(true);
             setError(null);
@@ -1328,8 +1332,8 @@ const App = () => {
                     )}
                   </>
                 )}
-                <button type="button" onClick={handleJoin} disabled={joined}>
-                  {joined ? "Joined" : "Join lobby"}
+                <button type="button" onClick={handleJoin} disabled={joined || joiningBots}>
+                  {joined ? "Joined" : joiningBots ? "Joining..." : "Join lobby"}
                 </button>
                 {joined && game.status !== "active" && lobbyCountdown === null && !me?.ready && (
                   <button
