@@ -54,7 +54,7 @@ type ChatMessage = {
 };
 
 
-type JoinMode = "random" | "create" | "joinById";
+type JoinMode = "random" | "create" | "joinById" | "bots";
 
 
 // Resolve API base URL:
@@ -212,6 +212,8 @@ const App = () => {
   }, []);
   const lastLettersKeyRef = useRef("");
   const [joinMode, setJoinMode] = useState<JoinMode>("random");
+  const [joinBotsDifficulty, setJoinBotsDifficulty] = useState<'easy' | 'medium' | 'hard' | 'genius'>('easy');
+  const [joinBotsCount, setJoinBotsCount] = useState<number>(1);
   const [lobbyIdInput, setLobbyIdInput] = useState("");
   const [game, setGame] = useState<GameState>({
     players: [],
@@ -793,11 +795,23 @@ const App = () => {
       setJoined(true);
       setError(null);
     } else {
-      // Random join
-      socket.emit("join", { name: accountName.trim().toUpperCase() });
-      socket.emit("setReady", { ready: true });
-      setJoined(true);
-      setError(null);
+      // Random join or play with bots
+      if (joinMode === 'bots') {
+        socket.emit('playWithBots', { name: accountName.trim().toUpperCase(), difficulty: joinBotsDifficulty, botCount: joinBotsCount }, (result: any) => {
+          if (result?.ok) {
+            setJoined(true);
+            setError(null);
+            pushToast(`Joined bots lobby: ${result.lobbyId}`, 'success');
+          } else {
+            setError(result?.error || 'Failed to join bots lobby');
+          }
+        });
+      } else {
+        socket.emit("join", { name: accountName.trim().toUpperCase() });
+        socket.emit("setReady", { ready: true });
+        setJoined(true);
+        setError(null);
+      }
     }
   };
 
@@ -1242,6 +1256,16 @@ const App = () => {
                         <input
                           type="radio"
                           name="joinMode"
+                          value="bots"
+                          checked={joinMode === "bots"}
+                          onChange={() => setJoinMode("bots")}
+                        />
+                        <span>Play With Bots</span>
+                      </label>
+                      <label>
+                        <input
+                          type="radio"
+                          name="joinMode"
                           value="create"
                           checked={joinMode === "create"}
                           onChange={() => setJoinMode("create")}
@@ -1265,6 +1289,42 @@ const App = () => {
                         onChange={(event) => setLobbyIdInput(event.target.value.toUpperCase())}
                         placeholder="Enter lobby ID"
                       />
+                    )}
+                    {joinMode === "bots" && (
+                      <div className="bots-options">
+                        <div className="bots-row">
+                          <div className="muted">Difficulty:</div>
+                          <div className="bot-difficulty" role="tablist" aria-label="Bot difficulty">
+                            {(['easy','medium','hard','genius'] as const).map((d) => (
+                              <button
+                                key={d}
+                                type="button"
+                                className={"bot-difficulty-button" + (joinBotsDifficulty === d ? ' selected' : '')}
+                                onClick={() => setJoinBotsDifficulty(d)}
+                                aria-pressed={joinBotsDifficulty === d}
+                              >
+                                {d.charAt(0).toUpperCase() + d.slice(1)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="bots-row">
+                          <div className="muted">Bot count:</div>
+                          <div className="bot-count-pills" role="list">
+                            {[1,2,3,4,5,6].map((n) => (
+                              <button
+                                key={n}
+                                type="button"
+                                className={"bot-count-pill" + (joinBotsCount === n ? ' selected' : '')}
+                                onClick={() => setJoinBotsCount(n)}
+                                aria-current={joinBotsCount === n}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </>
                 )}

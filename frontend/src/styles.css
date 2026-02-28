@@ -196,6 +196,61 @@
   letter-spacing: 0.08em;
   color: #1f1c1a;
 }
+.bots-options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px 0;
+  align-items: start;
+}
+.bots-row {
+  display: block;
+}
+.bot-difficulty {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.bot-difficulty-button {
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #f4a61c; /* lightning color for unselected */
+  cursor: pointer;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: #1f1c1a;
+  border-color: #f4a61c;
+  transition: background 0.15s, color 0.15s, transform 0.08s;
+}
+.bot-difficulty-button:hover { transform: translateY(-1px); }
+.bot-difficulty-button.selected {
+  background: #1f1c1a; /* dark match for selected */
+  color: #fff;
+  border-color: #1f1c1a;
+}
+.bot-count-pills {
+  display: flex;
+  gap: 8px;
+  margin-left: 0;
+  margin-top: 6px;
+}
+.bot-count-pill {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #f4a61c; /* lightning color for unselected */
+  cursor: pointer;
+  font-weight: 700;
+  color: #1f1c1a;
+  transition: background 0.12s, transform 0.08s;
+}
+.bot-count-pill:hover { transform: translateY(-1px); }
+.bot-count-pill.selected {
+  background: #1f1c1a; /* dark match for selected */
+  color: #fff;
+  border-color: #1f1c1a;
+}
 /* Improve touch responsiveness for tappable elements */
 button, .letter-tile, .ready-toggle, .lobby-id-badge-top, .lobby-ready-toggle {
   touch-action: manipulation;
@@ -1207,6 +1262,20 @@ ul {
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+}
+
+/* Ensure bot option buttons inside .card override the generic .card button styles */
+.card .bot-difficulty-button,
+.card .bot-count-pill {
+  background: #f4a61c;
+  color: #1f1c1a;
+  border-color: #f4a61c;
+}
+.card .bot-difficulty-button.selected,
+.card .bot-count-pill.selected {
+  background: #1f1c1a;
+  color: #fff;
+  border-color: #1f1c1a;
 }
 
 .ready-button {

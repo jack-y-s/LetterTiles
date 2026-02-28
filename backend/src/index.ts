@@ -125,6 +125,8 @@ type Lobby = {
   resetCountdownInterval: NodeJS.Timeout | null;
   disconnectedPlayers: Map<string, DisconnectedPlayer>;
   chatMessages: ChatMessage[];
+  botMeta?: Map<string, { difficulty: 'easy' | 'medium' | 'hard' | 'genius' }>;
+  botTimers?: Map<string, NodeJS.Timeout[]>;
 };
 
 type SubmitAck = {
@@ -320,12 +322,10 @@ const lobbies = new Map<string, Lobby>();
 const socketLobbyMap = new Map<string, string>();
 let lobbyCounter = 1;
 
-// Global total rounds counter (persisted to disk so it survives restarts)
-const TOTAL_ROUNDS_FILE = path.resolve(__dirname, '..', 'total-rounds.json');
+// Global total rounds counter (stored in DB when available)
 let totalRounds = 0;
 // Optional Postgres pool (Neon). If `DATABASE_URL` is set in the environment
-// we'll attempt to use Postgres for durable, atomic updates. Otherwise we
-// keep using the JSON file fallback.
+// we'll attempt to use Postgres for durable, atomic updates.
 let dbPool: Pool | null = null;
 const DATABASE_URL = process.env.DATABASE_URL || null;
 
@@ -346,53 +346,12 @@ const initDb = async () => {
     dbPool = null;
   }
 };
-const loadTotalRounds = () => {
-  try {
-    if (fs.existsSync(TOTAL_ROUNDS_FILE)) {
-      const raw = fs.readFileSync(TOTAL_ROUNDS_FILE, 'utf8').trim();
-      if (raw.length > 0) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed.total === 'number') {
-            totalRounds = Math.max(0, Math.floor(parsed.total));
-            console.log('[server] loaded totalRounds =', totalRounds);
-            return;
-          }
-        } catch (_) {
-          // Fallback to treating file as a plain number
-          const n = Number(raw);
-          if (!Number.isNaN(n)) {
-            totalRounds = Math.max(0, Math.floor(n));
-            console.log('[server] loaded totalRounds (legacy) =', totalRounds);
-            return;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[server] failed to load totalRounds file', e);
-  }
-  totalRounds = 0;
-};
-const saveTotalRounds = () => {
-  if (dbPool) {
-    dbPool.query('UPDATE global_meta SET total = $1 WHERE key = $2', [totalRounds, 'totalRounds']).catch((e) => {
-      console.warn('[server] failed to persist totalRounds to db', e);
-    });
-    return;
-  }
-  try {
-    fs.writeFileSync(TOTAL_ROUNDS_FILE, JSON.stringify({ total: totalRounds }), 'utf8');
-  } catch (e) {
-    console.warn('[server] failed to persist totalRounds', e);
-  }
-};
-loadTotalRounds();
+// No file fallback — when DATABASE_URL is present we initialize from DB.
+// Otherwise `totalRounds` defaults to 0 for in-memory counting.
 // Initialize DB in background (if configured). File fallback already loaded above.
 void initDb();
 
-// Atomically increment total rounds using DB when available, otherwise fall back
-// to the file-based increment. Returns the new total.
+// Atomically increment total rounds using DB when available. Returns the new total.
 const incrementTotalRoundsAtomic = async (): Promise<number> => {
   if (dbPool) {
     try {
@@ -404,12 +363,164 @@ const incrementTotalRoundsAtomic = async (): Promise<number> => {
       return Number(res.rows[0].total);
     } catch (e) {
       console.warn('[server] DB increment failed, falling back to file', e);
-      // fall through to file fallback
+      // fall through to in-memory fallback
     }
   }
   totalRounds = (totalRounds || 0) + 1;
-  saveTotalRounds();
   return totalRounds;
+};
+
+// Bot helpers
+const createBotForLobby = (lobby: Lobby, difficulty: 'easy' | 'medium' | 'hard' | 'genius', index: number) => {
+  const botId = `bot-${lobby.id}-${index}-${Date.now()}`;
+  const name = `Bot ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} #${index}`;
+  const avatarColor = AVATAR_COLORS[(lobby.state.players.length) % AVATAR_COLORS.length];
+  const bot: Player = {
+    id: botId,
+    name,
+    score: 0,
+    streakCount: 0,
+    streakPoints: 0,
+    streakBonusApplied: 0,
+    avatarColor,
+    ready: true
+  };
+  lobby.state.players.push(bot);
+  lobby.revealedByPlayer.set(botId, new Set<number>());
+  lobby.submittedWords.set(botId, new Set<string>());
+  lobby.hiddenBonusAwarded = lobby.hiddenBonusAwarded || new Set();
+  lobby.botMeta = lobby.botMeta || new Map();
+  lobby.botMeta.set(botId, { difficulty });
+  lobby.botTimers = lobby.botTimers || new Map();
+  lobby.botTimers.set(botId, []);
+};
+
+const botSubmitWord = (lobby: Lobby, botId: string) => {
+  const bot = getPlayer(lobby, botId);
+  if (!bot || lobby.state.status !== 'active') return;
+  const submitted = lobby.submittedWords.get(botId) ?? new Set<string>();
+  // Build a global set of already-submitted words (by any player) so bots
+  // prefer unique words instead of duplicating other players' submissions.
+  const globalSubmitted = new Set<string>();
+  lobby.submittedWords.forEach((set) => {
+    for (const w of set) globalSubmitted.add(w.toLowerCase());
+  });
+  // pick an unsubmitted session word (not already submitted by anyone)
+  let candidates = lobby.sessionWords.filter((w) => !globalSubmitted.has(w.toLowerCase()));
+  // If there are no truly-unique candidates left, fall back to per-bot candidates
+  if (candidates.length === 0) {
+    candidates = lobby.sessionWords.filter((w) => !submitted.has(w.toLowerCase()));
+  }
+  if (candidates.length === 0) return;
+  // Determine difficulty accuracy from lobby metadata (fallback to medium)
+  const meta = lobby.botMeta?.get(botId);
+  const difficulty = meta?.difficulty || 'medium';
+  const accuracyMap: Record<string, number> = { easy: 0.2, medium: 0.3, hard: 0.5, genius: 0.8 };
+  const accuracy = accuracyMap[difficulty] ?? 0.8;
+  // mistakeChance: chance the bot intentionally picks a poor/short word instead of a high-scoring one
+  const mistakeMap: Record<string, number> = { easy: 0.8, medium: 0.7, hard: 0.5, genius: 0.2 };
+  const mistakeChance = mistakeMap[difficulty] ?? 0.2;
+  // Prefer longer words with probability=accuracy, otherwise pick a random candidate
+  let pick: string;
+  if (Math.random() < accuracy) {
+    candidates.sort((a, b) => b.length - a.length);
+    // pick from top 3 longer words
+    const topN = Math.min(3, candidates.length);
+    pick = candidates[Math.floor(Math.random() * topN)];
+  } else {
+    // Mistake branch: either pick a short/low-scoring word with some chance, otherwise random
+    if (Math.random() < mistakeChance) {
+      candidates.sort((a, b) => a.length - b.length); // shortest first
+      const bottomN = Math.min(3, candidates.length);
+      pick = candidates[Math.floor(Math.random() * bottomN)];
+    } else {
+      pick = candidates[Math.floor(Math.random() * candidates.length)];
+    }
+  }
+  const MAX_PICK_ATTEMPTS = 5;
+  let normalized = pick.toLowerCase();
+  // If another player has submitted this word since we built candidates (race),
+  // try to pick a different candidate a few times before giving up.
+  let attempt = 0;
+  while (attempt < MAX_PICK_ATTEMPTS) {
+    let conflict = false;
+    for (const s of lobby.submittedWords.values()) {
+      if (s.has(normalized)) { conflict = true; break; }
+    }
+    if (!conflict) break;
+    // remove conflicted candidate and pick another
+    candidates = candidates.filter((w) => w.toLowerCase() !== normalized);
+    if (candidates.length === 0) break;
+    pick = candidates[Math.floor(Math.random() * candidates.length)];
+    normalized = pick.toLowerCase();
+    attempt += 1;
+  }
+  const index = lobby.wordIndex.get(normalized);
+  if (index !== undefined) {
+    const revealedForPlayer = lobby.revealedByPlayer.get(botId) ?? new Set<number>();
+    if (!revealedForPlayer.has(index)) {
+      revealedForPlayer.add(index);
+      lobby.revealedByPlayer.set(botId, revealedForPlayer);
+    }
+  }
+  submitted.add(normalized);
+  lobby.submittedWords.set(botId, submitted);
+  const length = normalized.length;
+  const basePoints = length * POINTS_PER_LETTER;
+  const lengthBonus = getLengthBonus(length);
+  const hiddenBonus = index !== undefined ? getHiddenBonus(length) : 0;
+  const wordPoints = basePoints + lengthBonus + hiddenBonus;
+  applyValidScore(bot, wordPoints);
+  if (index !== undefined) {
+    const revealedForPlayer = lobby.revealedByPlayer.get(botId);
+    if (
+      revealedForPlayer &&
+      revealedForPlayer.size === lobby.sessionWords.length &&
+      !lobby.hiddenBonusAwarded.has(botId)
+    ) {
+      lobby.hiddenBonusAwarded.add(botId);
+      bot.score += ALL_HIDDEN_BONUS;
+    }
+  }
+  lobby.state.lastAction = `${bot.name} submitted ${normalized.toUpperCase()}`;
+  broadcastState(lobby);
+};
+
+const scheduleBotsForLobby = (lobby: Lobby) => {
+  if (!lobby.botMeta || !lobby.botTimers) return;
+  // Clear any existing timers
+  lobby.botTimers.forEach((timers) => timers.forEach((t) => clearTimeout(t)));
+  lobby.botTimers.clear();
+  // For each bot, schedule submissions spaced across the session duration
+  const sessionMs = SESSION_SECONDS * 1000;
+  let botIndex = 0;
+  for (const [botId, meta] of lobby.botMeta.entries()) {
+    const timers: NodeJS.Timeout[] = [];
+    const difficulty = meta.difficulty;
+    // base attempts per difficulty, then add a small random delta so bots
+    // don't all have identical counts
+    let attempts = difficulty === 'easy' ? 4 : difficulty === 'medium' ? 6 : difficulty === 'hard' ? 9 : 12;
+    attempts += Math.floor(Math.random() * 3) - 1; // -1,0 or +1
+    // ensure attempts fit reasonably within session
+    attempts = Math.max(1, Math.min(attempts, 20));
+    // per-bot initial offset to de-synchronize bots
+    const initialOffset = Math.floor(Math.random() * Math.min(3000, Math.max(500, Math.round(sessionMs / Math.max(1, attempts)))));
+    for (let i = 0; i < attempts; i++) {
+      // schedule roughly evenly, with larger jitter and a small index-based offset
+      const base = (i + 1) * (sessionMs / (attempts + 1));
+      const maxJitter = Math.min(8000, Math.round(sessionMs / Math.max(1, attempts)));
+      const jitter = Math.floor((Math.random() - 0.5) * maxJitter);
+      // slight staggering by bot index so multiple bots don't align
+      const indexOffset = botIndex * 220;
+      const delay = Math.max(500, Math.round(base + jitter + initialOffset + indexOffset));
+      const t = setTimeout(() => {
+        try { botSubmitWord(lobby, botId); } catch (_) {}
+      }, delay);
+      timers.push(t);
+    }
+    lobby.botTimers.set(botId, timers);
+    botIndex += 1;
+  }
 };
 
 const pickRandom = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
@@ -460,6 +571,9 @@ const createLobby = () => {
     resetCountdownInterval: null,
     disconnectedPlayers: new Map(),
     chatMessages: []
+    ,
+    botMeta: new Map(),
+    botTimers: new Map()
   };
   lobbies.set(lobbyId, lobby);
   return lobby;
@@ -666,6 +780,8 @@ const startSession = (lobby: Lobby) => {
   lobby.state.winner = null;
   lobby.sessionEndAt = Date.now() + SESSION_SECONDS * 1000;
   broadcastState(lobby);
+  // Schedule bot behavior if this lobby contains bots
+  scheduleBotsForLobby(lobby);
 };
 
 const emitLobbyCountdown = (lobby: Lobby, seconds: number | null) => {
@@ -765,6 +881,11 @@ const destroyLobby = (lobby: Lobby) => {
     clearTimeout(disconnected.cleanupTimer);
   });
   lobby.disconnectedPlayers.clear();
+  // Clear bot timers
+  if (lobby.botTimers) {
+    lobby.botTimers.forEach((timers) => timers.forEach((t) => clearTimeout(t)));
+    lobby.botTimers.clear();
+  }
   lobbies.delete(lobby.id);
 };
 
@@ -920,6 +1041,39 @@ io.on("connection", (socket) => {
     broadcastState(lobby);
     
     callback?.({ ok: true, lobbyId: lobby.id });
+  });
+
+  // Play with bots: create a lobby and populate with bots of selected difficulty.
+  socket.on('playWithBots', ({ name, difficulty, botCount }: { name: string; difficulty?: string; botCount?: number }, callback?: (result: any) => void) => {
+    try {
+      const safeName = (name?.trim() || 'Player').toUpperCase();
+      const lobby = createLobby();
+      socket.join(lobby.id);
+      socketLobbyMap.set(socket.id, lobby.id);
+      const player = addPlayer(lobby, socket.id, safeName);
+      // Determine difficulty (default 'easy')
+      const diff = (['easy','medium','hard','genius'].includes((difficulty || '').toLowerCase()) ? (difficulty || 'easy').toLowerCase() : 'easy') as 'easy' | 'medium' | 'hard' | 'genius';
+      // Determine how many bots to create. Prefer explicit `botCount`, fallback to filling to MAX_PLAYERS-1.
+      let createCount = typeof botCount === 'number' ? Math.max(0, Math.min(botCount, MAX_PLAYERS - 1)) : (MAX_PLAYERS - 1);
+      // Backwards compatibility: if difficulty looks like 'hard:3', parse count
+      if (typeof difficulty === 'string' && difficulty.includes(':')) {
+        const parts = difficulty.split(':');
+        const maybeCount = Number(parts[1]);
+        if (!Number.isNaN(maybeCount) && maybeCount >= 0 && maybeCount <= (MAX_PLAYERS - 1)) createCount = maybeCount;
+      }
+      for (let i = 1; i <= createCount; i++) {
+        createBotForLobby(lobby, diff, i);
+      }
+      lobby.state.lastAction = `${player.name} started a bots game (${diff})`;
+      // Schedule lobby countdown so clients see the round-start timer
+      // (bots are created ready=true, so `allPlayersReady` will pass).
+      scheduleLobbyCountdown(lobby);
+      broadcastState(lobby);
+      callback?.({ ok: true, lobbyId: lobby.id });
+    } catch (e) {
+      console.warn('[server] failed to create bots lobby', e);
+      callback?.({ ok: false, error: 'failed' });
+    }
   });
 
   socket.on("join", ({ name, lobbyId }: { name: string; lobbyId?: string }) => {
@@ -1234,14 +1388,15 @@ app.get('/totalRounds', (_req, res) => {
 });
 
 app.post('/totalRounds/increment', (_req, res) => {
-  try {
-    totalRounds = (totalRounds || 0) + 1;
-    saveTotalRounds();
-    // Notify connected clients
-    io.emit('totalRoundsUpdated', totalRounds);
-    res.json({ total: totalRounds });
-  } catch (e) {
-    console.warn('[server] failed to increment totalRounds via REST', e);
-    res.status(500).json({ error: 'failed' });
-  }
+  (async () => {
+    try {
+      const newTotal = await incrementTotalRoundsAtomic();
+      totalRounds = newTotal;
+      io.emit('totalRoundsUpdated', totalRounds);
+      res.json({ total: totalRounds });
+    } catch (e) {
+      console.warn('[server] failed to increment totalRounds via REST', e);
+      res.status(500).json({ error: 'failed' });
+    }
+  })();
 });
